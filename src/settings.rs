@@ -51,6 +51,7 @@ impl Default for AppSettings {
 
 impl AppSettings {
 
+    #[allow(dead_code)]
     pub fn is_editor_exe_valid(&self) -> bool {
         if let Some(ref path) = self.editor_exe_path {
             path.is_file()

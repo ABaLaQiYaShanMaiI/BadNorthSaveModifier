@@ -2,9 +2,11 @@ use anyhow::{anyhow, Result};
 use log::{info, warn, debug};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use serde_json::Value;
 use paste::paste;
+use bad_north_save_converter::parser::parse;
+use bad_north_save_converter::json::{JsonDecoder, JsonEncoder};
+use bad_north_save_converter::serializer::serialize_checked;
 
 pub const GRAIL_UPGRADE_CODE: &str = "Hero_Upgrade_Grail";
 
@@ -92,35 +94,30 @@ impl SaveManager {
     // 预计可将 150+ 行代码简化为 ~10 行宏调用
     // =========================================
 
-    // ============ File I/O & Serialization ============
-    pub fn load_save(save_path: &Path, editor_exe: &Path) -> Result<Value> {
+    // ============ File I/O & Serialization (使用库直接内存操作) ============
+    pub fn load_save(save_path: &Path) -> Result<Value> {
         if !save_path.exists() {
             return Err(anyhow!("存档文件不存在：{}", save_path.display()));
         }
 
-        if !editor_exe.exists() {
-            return Err(anyhow!("编辑器 EXE 不存在：{}", editor_exe.display()));
-        }
+        info!("正在加载存档：{}", save_path.display());
 
-        let json_path = save_path.with_extension("json");
-        info!("正在将二进制转换为 JSON：{:?}", json_path);
+        let bytes = fs::read(save_path)
+            .map_err(|e| anyhow!("读取存档文件失败：{}", e))?;
 
-        let output = Command::new(editor_exe)
-            .arg("bin2json")
-            .arg(save_path)
-            .arg(&json_path)
-            .output()?;
+        let rec = parse(&bytes)
+            .map_err(|e| anyhow!("解析二进制存档失败：{}", e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!("二进制转 JSON 失败：{}", stderr));
-        }
+        let json_value = JsonEncoder::new(rec).encode();
 
-        let json_content = fs::read_to_string(&json_path)?;
-        let json_value: Value = serde_json::from_str(&json_content)?;
-
-        info!("存档已加载，JSON 文件保留于：{}", json_path.display());
+        info!("存档已加载（内存转换，无需外部EXE）");
         Ok(json_value)
+    }
+
+    /// Kept for backward compatibility with callers still passing editor_exe (ignored)
+    #[allow(dead_code)]
+    pub fn load_save_with_exe(save_path: &Path, _editor_exe: &Path) -> Result<Value> {
+        Self::load_save(save_path)
     }
 
     pub fn export_json(json_value: &Value, export_path: &Path) -> Result<()> {
@@ -130,44 +127,31 @@ impl SaveManager {
         Ok(())
     }
 
-    pub fn save_save(save_path: &Path, json_value: &Value, editor_exe: &Path) -> Result<()> {
-        if !editor_exe.exists() {
-            return Err(anyhow!("编辑器 EXE 不存在：{}", editor_exe.display()));
-        }
+    pub fn save_save(save_path: &Path, json_value: &Value) -> Result<()> {
+        info!("正在序列化并保存存档：{}", save_path.display());
 
-        let json_path = save_path.with_extension("json");
-        let new_save_path = save_path.with_extension("new");
+        let rec = JsonDecoder::decode(json_value)
+            .map_err(|e| anyhow!("JSON 解码失败：{}", e))?;
 
-        let json_content = serde_json::to_string_pretty(&json_value)?;
-        fs::write(&json_path, json_content)?;
+        let output_bytes = serialize_checked(&rec)
+            .map_err(|e| anyhow!("二进制序列化失败：{}", e))?;
 
-        info!("已写入修改后的 JSON：{:?}", json_path);
-
-        let output = Command::new(editor_exe)
-            .arg("json2bin")
-            .arg(&json_path)
-            .arg(&new_save_path)
-            .output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let _ = fs::remove_file(&json_path);
-            return Err(anyhow!("JSON 转二进制失败：{}", stderr));
-        }
-
+        // Create backup
         let backup_path = save_path.with_extension("backup");
         if save_path.exists() {
             fs::copy(save_path, &backup_path)?;
             info!("已创建备份：{:?}", backup_path);
         }
 
-        fs::copy(&new_save_path, save_path)?;
-        info!("存档文件已替换：{:?}", save_path);
-
-        let _ = fs::remove_file(&json_path);
-        let _ = fs::remove_file(&new_save_path);
-
+        fs::write(save_path, output_bytes)?;
+        info!("存档已保存（内存转换，无需外部EXE）");
         Ok(())
+    }
+
+    /// Kept for backward compatibility with callers still passing editor_exe (ignored)
+    #[allow(dead_code)]
+    pub fn save_save_with_exe(save_path: &Path, json_value: &Value, _editor_exe: &Path) -> Result<()> {
+        Self::save_save(save_path, json_value)
     }
 
     fn normalize_upgrade_type(upgrade_type: &str) -> String {
@@ -1122,10 +1106,12 @@ impl SaveManager {
         count
     }
 
+    #[allow(dead_code)]
     pub fn get_total_grail_count(json_value: &Value) -> i32 {
         Self::get_hero_grail_count(json_value) + Self::get_inventory_grail_count(json_value)
     }
 
+    #[allow(dead_code)]
     pub fn get_hero_grail_count(json_value: &Value) -> i32 {
         let records = match json_value["records"].as_object() {
             Some(r) => r,
@@ -1156,6 +1142,7 @@ impl SaveManager {
         count
     }
 
+    #[allow(dead_code)]
     pub fn get_grail_count(json_value: &Value) -> i32 {
         Self::get_total_grail_count(json_value)
     }
@@ -1492,16 +1479,19 @@ impl SaveManager {
         }
     }
 
+    #[allow(dead_code)]
     pub fn increment_grail_count(json_value: &mut Value) -> Result<i32> {
         Self::add_grail_to_inventory(json_value)?;
         Ok(Self::get_grail_count(json_value))
     }
 
+    #[allow(dead_code)]
     pub fn decrement_grail_count(json_value: &mut Value) -> Result<i32> {
         Self::remove_grail_from_inventory(json_value)?;
         Ok(Self::get_grail_count(json_value))
     }
 
+    #[allow(dead_code)]
     pub fn set_grail_count(json_value: &mut Value, target: i32) -> Result<()> {
         if target < 0 {
             return Err(anyhow!("圣杯数量不能为负数"));
@@ -1854,13 +1844,12 @@ impl SaveManager {
         Ok(())
     }
 
-    // 用宏生成所有快捷方法 (~150 行代码简化为以下7行)
-    item_count_shortcuts!(bomb, BOMB_UPGRADE_CODE);
-    item_count_shortcuts!(mine, MINE_UPGRADE_CODE);
-    item_count_shortcuts!(philosophers_stone, PHILOSOPHERS_STONE_UPGRADE_CODE);
-    item_count_shortcuts!(size, SIZE_UPGRADE_CODE);
-    item_count_shortcuts!(warhammer, WARHAMMER_UPGRADE_CODE);
-    item_count_shortcuts!(cornucopia, CORNUCOPIA_UPGRADE_CODE);
+    item_count_shortcuts!(@dead_code bomb, BOMB_UPGRADE_CODE);
+    item_count_shortcuts!(@dead_code mine, MINE_UPGRADE_CODE);
+    item_count_shortcuts!(@dead_code philosophers_stone, PHILOSOPHERS_STONE_UPGRADE_CODE);
+    item_count_shortcuts!(@dead_code size, SIZE_UPGRADE_CODE);
+    item_count_shortcuts!(@dead_code warhammer, WARHAMMER_UPGRADE_CODE);
+    item_count_shortcuts!(@dead_code cornucopia, CORNUCOPIA_UPGRADE_CODE);
     item_count_shortcuts!(@dead_code war_horn, WAR_HORN_UPGRADE_CODE);
 
     pub fn get_all_inventory_items(json_value: &Value) -> Vec<(String, i32)> {

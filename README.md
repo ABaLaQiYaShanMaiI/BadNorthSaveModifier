@@ -6,7 +6,7 @@
 
 ### 项目介绍
 
-**BadNorthSaveModifier** 是一个功能强大的 GUI 应用程序，专为 *Bad North* 游戏设计，用于快速、方便地修改游戏存档数据。该工具提供了直观的用户界面，使玩家能够轻松管理英雄、升级、背包物品和其他游戏数据。
+**BadNorthSaveModifier** 是一个功能强大的 GUI 应用程序，专为 *Bad North* 游戏设计，用于快速、方便地修改游戏存档数据。该工具提供了直观的用户界面，使玩家能够轻松管理英雄、升级、背包物品和其他游戏数据。存档转换功能已内置，无需额外安装外部工具。
 
 ### 主要功能
 
@@ -14,6 +14,7 @@
   - 查看所有已招募的英雄信息
   - 编辑英雄属性（等级、经验值等）
   - 管理英雄状态
+  - 修改英雄兵种（Class）、装备（Item）、特质（Trait）
 
 - **升级系统**
   - 圣杯升级 (Grail Upgrade)
@@ -29,39 +30,44 @@
   - 查看和编辑背包物品数量
   - 自动背包容量检查（最大 20 个物品）
   - 快速增加/减少物品
+  - 自定义物品添加
+
+- **Mod 支持**
+  - 魔改版专属装备与特质
+  - 融合版专属装备与特质
+  - 旧灰复燃的战旗专属特质
 
 - **界面特性**
-  - 中文与英文支持
-  - 亮色和黑暗主题
-  - 设置保存和恢复
-  - 友好的错误提示
+  - 中文与英文双语支持
+  - 三种色彩模式：黑色、彩色、跟随系统
+  - 主题切换平滑过渡动画
+  - 设置自动保存和恢复
+  - 友好的错误提示与操作日志
+  - 导出存档为 JSON
 
 ### 技术栈
 
-- **语言**: Rust
-- **UI 框架**: egui 0.24
+- **语言**: Rust (edition 2021)
+- **UI 框架**: egui 0.24 / eframe 0.24
 - **序列化**: serde, serde_json
 - **其他**:
   - walkdir (文件遍历)
   - rfd (文件选择对话框)
   - anyhow, thiserror (错误处理)
   - log, env_logger (日志记录)
-
-### 项目依赖
-
-本项目依赖于 **[BadNorthSaveConverter](https://github.com/ABaLaQiYaShanMaiI/BadNorthSaveConverter)**，该项目提供了 Bad North 存档文件的转换和序列化功能。
+  - paste (宏辅助)
 
 ### 项目结构
 
 ```
 BadNorthSaveModifier/
 ├── src/
-│   ├── main.rs                 # 应用入口和主逻辑
+│   ├── main.rs                 # 应用入口和主逻辑 (~1887 行)
 │   ├── lib.rs                  # 库入口
 │   ├── models.rs               # 数据模型
-│   ├── save_manager.rs         # 存档读写管理 (~2100 行)
+│   ├── save_manager.rs         # 存档读写管理
 │   ├── settings.rs             # 应用设置
-│   ├── class_dictionary.rs     # 类型字典
+│   ├── class_dictionary.rs     # 兵种字典
 │   ├── upgrade_dictionary.rs   # 升级字典
 │   └── ui/
 │       ├── mod.rs              # UI 模块入口
@@ -69,20 +75,23 @@ BadNorthSaveModifier/
 │       └── components/
 │           └── mod.rs          # UI 组件
 ├── Cargo.toml                  # 项目配置和依赖
+├── Cargo.lock                  # 依赖锁定文件
+├── LICENSE                     # 许可证
+├── .gitignore                  # Git 忽略规则
 └── README.md                   # 项目说明文档
 ```
 
 ### 安装与编译
 
 #### 前置要求
-- Rust 1.56+ (推荐最新稳定版)
+- Rust 1.56+（推荐最新稳定版）
 - Cargo
 
 #### 编译步骤
 
 1. **克隆或下载项目**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/ABaLaQiYaShanMaiI/BadNorthSaveModifier.git
    cd BadNorthSaveModifier
    ```
 
@@ -103,58 +112,60 @@ BadNorthSaveModifier/
 1. **启动应用**
    - 运行编译后的 `BadNorthSaveModifier.exe`
 
-2. **选择编辑器 (Unity Editor)**
-   - 首次运行时，选择 Bad North 的游戏编辑器执行文件
+2. **选择存档文件**
+   - 应用启动后，浏览并选择要编辑的 Bad North 游戏存档文件
+   - 存档转换由内置转换器自动完成，无需额外工具
 
-3. **选择存档文件**
-   - 导航到存档文件位置并选择要编辑的存档
+3. **编辑存档**
+   - 在左侧菜单中选择要修改的功能（设置、指挥官、货币与物品）
+   - 在右侧面板中修改英雄、升级、物品等数据
+   - 修改实时预览，操作日志即时反馈
 
-4. **编辑存档**
-   - 在 UI 中修改英雄、升级、物品等数据
-   - 修改实时预览
+4. **保存修改**
+   - 点击「备份并替换存档」按钮将修改后的数据写回存档文件
+   - 应用会自动备份原存档，防止数据丢失
 
-5. **保存修改**
-   - 点击保存按钮将修改后的数据写回存档文件
+5. **导出 JSON**
+   - 可以将当前存档数据导出为 JSON 文件，便于查看或备份
 
 ### 核心模块详解
 
-#### `save_manager.rs` (~2100 行)
-包含存档文件的读写操作，主要分为 10 个功能模块：
+#### `main.rs` (~1887 行)
+应用程序的主入口和核心 UI 逻辑，包含：
+- 应用状态管理（选择存档 / 加载存档 / 编辑存档）
+- 色彩主题系统（含平滑过渡动画）
+- 中英文国际化翻译函数
+- Windows/macOS/Linux 系统暗黑模式检测
 
-- **模块 1-4**: 基础操作
-  - 文件 I/O 和序列化
-  - 内部工具函数
-  - 英雄升级
-  - 属性管理
-
-- **模块 5-7**: 数据查询
-  - 存档数据查询
-  - 货币查询
-  - 圣杯查询
-
-- **模块 8-10**: 背包管理
-  - 通用背包操作
-  - 快捷方法 (56 个宏生成的方法)
-  - 统计摘要
+#### `save_manager.rs`
+包含存档文件的读写操作，主要分为以下功能模块：
+- 文件 I/O 和序列化 / 反序列化
+- 英雄数据查询与修改
+- 货币（coinBank）查询与修改
+- 圣杯（Grail）查询与修改
+- 背包物品的增删改查
+- 快捷操作方法（通过宏生成）
 
 #### `ui/` 目录
 包含所有用户界面相关代码，使用 egui 框架提供跨平台支持。
 
 ### 配置与设置
 
-应用支持以下设置项（通过 `settings.rs` 管理）：
+应用支持以下设置项（通过 `settings.rs` 管理，自动保存为 `settings.json`）：
+
+- **色彩模式** (ColorMode)
+  - 黑色 (Black) — 暗色主题
+  - 彩色 (Colorful) — 亮色主题，带蓝色强调色
+  - 跟随系统 (FollowSystem) — 自动跟随操作系统的亮/暗模式
 
 - **语言设置** (Language)
-  - 中文 (ZH_CN)
-  - 英文 (EN)
+  - 中文 (Chinese)
+  - 英文 (English)
 
-- **主题设置** (ColorMode)
-  - 亮色主题 (Light)
-  - 黑暗主题 (Dark)
-
-- **用户首选项**
-  - 自动保存应用设置
-  - 记忆上次选择的文件路径
+- **其他首选项**
+  - 保持日志面板显示 (Keep Logs Visible)
+  - 记忆编辑器 EXE 路径
+  - 设置自动保存和恢复
 
 ### 故障排除
 
@@ -187,7 +198,7 @@ BadNorthSaveModifier/
 
 ### Project Description
 
-**BadNorthSaveModifier** is a powerful GUI application designed for the *Bad North* game to quickly and conveniently modify game save data. The tool provides an intuitive user interface that allows players to easily manage heroes, upgrades, inventory items, and other game data.
+**BadNorthSaveModifier** is a powerful GUI application designed for the *Bad North* game to quickly and conveniently modify game save data. The tool provides an intuitive user interface that allows players to easily manage heroes, upgrades, inventory items, and other game data. Save conversion is built-in, no external tools required.
 
 ### Key Features
 
@@ -195,6 +206,7 @@ BadNorthSaveModifier/
   - View all recruited hero information
   - Edit hero attributes (level, experience, etc.)
   - Manage hero status
+  - Modify hero Class, Item, and Trait
 
 - **Upgrade System**
   - Grail Upgrade
@@ -210,37 +222,42 @@ BadNorthSaveModifier/
   - View and edit inventory item quantities
   - Automatic inventory capacity checks (max 20 items)
   - Quick add/remove items
+  - Custom item addition
+
+- **Mod Support**
+  - Mod version exclusive equipment and traits
+  - Fusion version exclusive equipment and traits
+  - Rebirth Flag exclusive traits
 
 - **UI Features**
-  - Chinese and English support
-  - Light and dark themes
-  - Settings persistence
-  - User-friendly error messages
+  - Chinese and English bilingual support
+  - Three color modes: Black, Colorful, Follow System
+  - Smooth theme transition animations
+  - Settings auto-save and restore
+  - User-friendly error messages and operation logs
+  - Export save data as JSON
 
 ### Tech Stack
 
-- **Language**: Rust
-- **UI Framework**: egui 0.24
+- **Language**: Rust (edition 2021)
+- **UI Framework**: egui 0.24 / eframe 0.24
 - **Serialization**: serde, serde_json
 - **Other**:
   - walkdir (directory traversal)
-  - rfd (filDependencies
-
-This project depends on **[BadNorthSaveConverter](https://github.com/ABaLaQiYaShanMaiI/BadNorthSaveConverter)**, which provides conversion and serialization functionality for Bad North save files.
-
-### Project e picker dialogs)
+  - rfd (file picker dialogs)
   - anyhow, thiserror (error handling)
   - log, env_logger (logging)
+  - paste (macro helpers)
 
 ### Project Structure
 
 ```
 BadNorthSaveModifier/
 ├── src/
-│   ├── main.rs                 # Application entry and main logic
+│   ├── main.rs                 # Application entry and main logic (~1887 lines)
 │   ├── lib.rs                  # Library entry point
 │   ├── models.rs               # Data models
-│   ├── save_manager.rs         # Save file management (~2100 lines)
+│   ├── save_manager.rs         # Save file read/write management
 │   ├── settings.rs             # Application settings
 │   ├── class_dictionary.rs     # Class type dictionary
 │   ├── upgrade_dictionary.rs   # Upgrade dictionary
@@ -249,7 +266,10 @@ BadNorthSaveModifier/
 │       ├── styles.rs           # UI styles
 │       └── components/
 │           └── mod.rs          # UI components
-├── Cargo.toml                  # Project configuration
+├── Cargo.toml                  # Project configuration and dependencies
+├── Cargo.lock                  # Dependency lock file
+├── LICENSE                     # License
+├── .gitignore                  # Git ignore rules
 └── README.md                   # Project documentation
 ```
 
@@ -263,7 +283,7 @@ BadNorthSaveModifier/
 
 1. **Clone or download the project**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/ABaLaQiYaShanMaiI/BadNorthSaveModifier.git
    cd BadNorthSaveModifier
    ```
 
@@ -284,58 +304,60 @@ The compiled executable will be at `target/release/BadNorthSaveModifier.exe`
 1. **Launch the application**
    - Run the compiled `BadNorthSaveModifier.exe`
 
-2. **Select the game editor**
-   - On first run, select the Bad North game editor executable
+2. **Select a save file**
+   - After launch, browse and select the Bad North save file to edit
+   - Save conversion is handled automatically by the built-in converter
 
-3. **Select a save file**
-   - Navigate to the save file location and select the save to edit
+3. **Edit the save**
+   - Select the function to modify from the left menu (Settings, Commanders, Currency & Items)
+   - Modify heroes, upgrades, items, and other data in the right panel
+   - Changes are previewed in real-time with instant log feedback
 
-4. **Edit the save**
-   - Modify heroes, upgrades, items, and other data in the UI
-   - Changes are previewed in real-time
+4. **Save changes**
+   - Click the "Save & Backup" button to write modified data back to the save file
+   - The app automatically creates a backup of the original save
 
-5. **Save changes**
-   - Click the save button to write the modified data back to the save file
+5. **Export JSON**
+   - Export the current save data as a JSON file for viewing or backup
 
 ### Core Modules Overview
 
-#### `save_manager.rs` (~2100 lines)
-Handles save file read/write operations with 10 main functional modules:
+#### `main.rs` (~1887 lines)
+The application's main entry point and core UI logic, including:
+- Application state management (Select Save / Load Save / Edit Save)
+- Color theme system (with smooth transition animations)
+- Chinese/English i18n translation functions
+- System dark mode detection for Windows/macOS/Linux
 
-- **Modules 1-4**: Basic operations
-  - File I/O and serialization
-  - Utility functions
-  - Hero upgrades
-  - Attribute management
-
-- **Modules 5-7**: Data queries
-  - Save data queries
-  - Currency queries
-  - Grail queries
-
-- **Modules 8-10**: Inventory management
-  - Generic inventory operations
-  - Shortcut methods (56 macro-generated methods)
-  - Summary statistics
+#### `save_manager.rs`
+Handles save file read/write operations with the following modules:
+- File I/O and serialization/deserialization
+- Hero data queries and modifications
+- Currency (coinBank) queries and modifications
+- Grail queries and modifications
+- Inventory item CRUD operations
+- Shortcut helper methods (generated via macros)
 
 #### `ui/` Directory
 Contains all user interface code using the egui framework for cross-platform support.
 
 ### Configuration & Settings
 
-The application supports the following settings (managed via `settings.rs`):
+The application supports the following settings (managed via `settings.rs`, auto-saved as `settings.json`):
 
-- **Language Settings** (Language)
-  - Chinese (ZH_CN)
-  - English (EN)
+- **Color Mode** (ColorMode)
+  - Black — Dark theme
+  - Colorful — Light theme with blue accent colors
+  - Follow System — Automatically follows the OS light/dark mode
 
-- **Theme Settings** (ColorMode)
-  - Light Theme
-  - Dark Theme
+- **Language** (Language)
+  - Chinese
+  - English
 
-- **User Preferences**
-  - Auto-save application settings
-  - Remember last selected file paths
+- **Other Preferences**
+  - Keep Logs Visible
+  - Remember editor EXE path
+  - Settings auto-save and restore
 
 ### Troubleshooting
 

@@ -42,6 +42,7 @@ pub const ITEM_DICTIONARY_ORIGINAL: &[UpgradeEntry] = &[
 
 /// 装备 · 融合版（新增）
 /// 《旧恢复燃的战旗 · 融合版》中新增的装备
+#[allow(dead_code)]
 pub const ITEM_DICTIONARY_FUSION_NEW: &[UpgradeEntry] = &[
     UpgradeEntry { code: "Hero_Item_Charge",       chinese_name: "盾冲",     initial_level: 0 },
     UpgradeEntry { code: "Hero_Item_DeathZone",    chinese_name: "死亡区域", initial_level: 0 },
@@ -81,6 +82,7 @@ pub const TRAIT_DICTIONARY_ORIGINAL: &[UpgradeEntry] = &[
 /// 特质 · 旧恢复燃的战旗（已停支内容）
 /// 《旧恢复燃的战旗》独占的特质（仅在旧版DLC中有效，融合版已删除）
 /// 不推荐用于新游戏，这些特质在融合版中被重新设计
+#[allow(dead_code)]
 pub const TRAIT_DICTIONARY_OLDGREY_FLAG_LEGACY: &[UpgradeEntry] = &[
     UpgradeEntry { code: "Hero_Trait_AxeThrower",        chinese_name: "掷斧手",       initial_level: 0 },
     UpgradeEntry { code: "Hero_Trait_CheaperClass",      chinese_name: "迅捷精英",     initial_level: 0 },
@@ -91,6 +93,7 @@ pub const TRAIT_DICTIONARY_OLDGREY_FLAG_LEGACY: &[UpgradeEntry] = &[
 /// 特质 · 融合版（新增 & 重设计）
 /// 《旧恢复燃的战旗 · 融合版》中新增的特质
 /// 包含全新特质(11个) + 旧版DLC升级版本(3个) + 融合版专属(7个) = 21个
+#[allow(dead_code)]
 pub const TRAIT_DICTIONARY_FUSION_NEW: &[UpgradeEntry] = &[
     // 全新特质 (11个)
     UpgradeEntry { code: "Hero_Trait_AxeThrower",        chinese_name: "投斧大队",     initial_level: 0 },
@@ -136,11 +139,14 @@ pub const TRAIT_DICTIONARY_MOD_VERSION: &[UpgradeEntry] = &[
 // 向后兼容别名
 // 注：TRAIT_DICTIONARY_FUSION 包含原版特质(13) + 融合版新增(21) = 占用总体位置
 pub const TRAIT_DICTIONARY: &[UpgradeEntry] = TRAIT_DICTIONARY_ORIGINAL;
+#[allow(dead_code)]
 pub const TRAIT_DICTIONARY_OLDGREY_FLAG: &[UpgradeEntry] = TRAIT_DICTIONARY_OLDGREY_FLAG_LEGACY;
+#[allow(dead_code)]
 pub const TRAIT_DICTIONARY_FUSION: &[UpgradeEntry] = TRAIT_DICTIONARY_FUSION_NEW;
 
 // 装备别名（向后兼容）
 pub const UPGRADE_DICTIONARY: &[UpgradeEntry] = ITEM_DICTIONARY_ORIGINAL;
+#[allow(dead_code)]
 pub const ITEM_DICTIONARY_FUSION: &[UpgradeEntry] = ITEM_DICTIONARY_FUSION_NEW;
 
 // ==================== 技能字典 (Skills) ====================
