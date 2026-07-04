@@ -75,6 +75,9 @@ struct EditState {
     new_warhammer: String,
     new_cornucopia: String,
     new_war_horn: String,
+    new_front_armor: String,
+    new_speed_up: String,
+    new_charge: String,
     custom_item_input: String,
     oldgrey_flag_traits_expanded: bool,
     fusion_traits_expanded: bool,
@@ -105,6 +108,9 @@ impl Default for EditState {
             new_warhammer: String::new(),
             new_cornucopia: String::new(),
             new_war_horn: String::new(),
+            new_front_armor: String::new(),
+            new_speed_up: String::new(),
+            new_charge: String::new(),
             custom_item_input: String::new(),
             oldgrey_flag_traits_expanded: false,
             fusion_traits_expanded: false,
@@ -455,6 +461,7 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "grail_code"    => "圣杯代码:",
             "set_count"     => "设置数量:",
             "copy_code"     => "复制 Hero_Upgrade_Grail 到剪贴板",
+            "copy_item_code" => "复制当前装备字段到剪贴板",
             "current_value" => "当前值",
             "new_value_label" => "新值",
             "apply_modify"  => "应用修改",
@@ -466,6 +473,7 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "grail_wip"     => "背包装备管理功能完善中，敬请期待",
 
             "inv_panel_title"          => "背包装备修改",
+            "inv_grail_title"         => "圣杯 (Grail)",
             "inv_item_code"            => "代码:",
             "inv_total"                => "总数:",
             "inv_on_hero"              => "已装备",
@@ -593,6 +601,7 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "grail_wip"     => "Inventory equipment management coming soon, stay tuned",
 
             "inv_panel_title"          => "Inventory Equipment Edit",
+            "inv_grail_title"         => "Grail",
             "inv_item_code"            => "Code:",
             "inv_total"                => "Total:",
             "inv_on_hero"              => "Equipped:",
@@ -833,17 +842,15 @@ impl ModifierApp {
                     } else {
                         t("select_game_folder", &lang)
                     };
-                    ui.vertical_centered(|ui| {
-                        ui.horizontal(|ui| {
-                            if ui.button(btn_label).clicked() {
-                                self.try_select_game_folder();
+                    ui.horizontal(|ui| {
+                        if ui.button(btn_label).clicked() {
+                            self.try_select_game_folder();
+                        }
+                        if self.app_settings.game_folder_path.is_some() {
+                            if ui.button(t("clear_game_folder", &lang)).clicked() {
+                                self.try_clear_game_folder();
                             }
-                            if self.app_settings.game_folder_path.is_some() {
-                                if ui.button(t("clear_game_folder", &lang)).clicked() {
-                                    self.try_clear_game_folder();
-                                }
-                            }
-                        });
+                        }
                     });
 
                     // 显示插件扫描结果
@@ -1389,7 +1396,233 @@ impl ModifierApp {
                                     ui.add_space(8.0);
 
                                     // Grail, Bomb, Mine, Philosophers Stone, Size, Warhammer, Cornucopia, War Horn panels
-                                    // ... (same as original, omitted for brevity but included in the build)
+                                    macro_rules! inventory_editor {
+                                        ($title_key:ident, $get_fn:ident, $code:expr, $input_field:ident) => {{
+                                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                                ui.vertical(|ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(egui::RichText::new(t(stringify!($title_key), &lang)).strong());
+                                                        if ui.add(egui::Button::new("📋").small()).on_hover_text(t("copy_item_code", &lang)).clicked() {
+                                                            ui.output_mut(|o| o.copied_text = $code.to_string());
+                                                        }
+                                                    });
+                                                    let current = SaveManager::$get_fn(json_data);
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_total", &lang));
+                                                        ui.monospace(current.to_string());
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        if ui.add(egui::Button::new("−1").small()).on_hover_text(format!("将 {} 减少 1", t(stringify!($title_key), &lang))).clicked() {
+                                                            let target = (current - 1).max(0);
+                                                            match SaveManager::set_item_count(json_data, $code, target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔{}: {} → {}", t(stringify!($title_key), &lang), current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("减少失败: {}", e)); }
+                                                            }
+                                                        }
+                                                        if ui.add(egui::Button::new("+1").small()).on_hover_text(format!("将 {} 增加 1", t(stringify!($title_key), &lang))).clicked() {
+                                                            let target = current + 1;
+                                                            match SaveManager::set_item_count(json_data, $code, target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔{}: {} → {}", t(stringify!($title_key), &lang), current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("增加失败: {}", e)); }
+                                                            }
+                                                        }
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_set_count", &lang));
+                                                        ui.text_edit_singleline(&mut edit_state.$input_field)
+                                                            .on_hover_text(format!("手动输入 {} 的新数量", t(stringify!($title_key), &lang)));
+                                                        if ui.button(t("apply_btn", &lang)).clicked() {
+                                                            if let Ok(new_val) = edit_state.$input_field.trim().parse::<i32>() {
+                                                                match SaveManager::set_item_count(json_data, $code, new_val) {
+                                                                    Ok(_) => {
+                                                                        edit_state.add_log("INFO", &format!("✔已修改 {}: {} → {}", t(stringify!($title_key), &lang), current, new_val));
+                                                                        edit_state.$input_field.clear();
+                                                                    }
+                                                                    Err(e) => {
+                                                                        edit_state.add_log("ERROR", &format!("修改失败: {}", e));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                            });
+                                            ui.add_space(4.0);
+                                        }};
+                                    }
+
+                                    inventory_editor!(inv_grail_title, get_inventory_bomb_count, "Hero_Upgrade_Grail", new_grails);
+                                    inventory_editor!(inv_bomb_title, get_inventory_bomb_count, "Hero_Upgrade_Bomb", new_bomb);
+                                    inventory_editor!(inv_mine_title, get_inventory_mine_count, "Hero_Upgrade_Mine", new_mine);
+                                    inventory_editor!(inv_stone_title, get_inventory_philosophers_stone_count, "Hero_Upgrade_PhilosophersStone", new_philosophers_stone);
+                                    inventory_editor!(inv_size_title, get_inventory_size_count, "Hero_Upgrade_Size", new_size);
+                                    inventory_editor!(inv_warhammer_title, get_inventory_warhammer_count, "Hero_Upgrade_Warhammer", new_warhammer);
+                                    inventory_editor!(inv_cornucopia_title, get_inventory_cornucopia_count, "Hero_Upgrade_Cornucopia", new_cornucopia);
+                                    inventory_editor!(inv_warhorn_title, get_inventory_war_horn_count, "Hero_Upgrade_WarHorn", new_war_horn);
+
+                                    // FancyTraits items
+                                    {
+                                        let detected = AppSettings::get_detected_trait_codes(&self.app_settings.plugins_info);
+                                        let has_charge = detected.iter().any(|c| c == "Hero_Item_Charge");
+                                        let has_front_armor = detected.iter().any(|c| c == "Hero_Item_FrontArmor");
+                                        let has_speed_up = detected.iter().any(|c| c == "Hero_Item_SpeedUp");
+                                        if has_charge {
+                                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                                ui.vertical(|ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(egui::RichText::new("盾冲 (Charge)").strong());
+                                                        if ui.add(egui::Button::new("📋").small()).on_hover_text(t("copy_item_code", &lang)).clicked() {
+                                                            ui.output_mut(|o| o.copied_text = "Hero_Item_Charge".to_string());
+                                                        }
+                                                    });
+                                                    let current = SaveManager::get_inventory_item_count(json_data, "Hero_Item_Charge");
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_total", &lang));
+                                                        ui.monospace(current.to_string());
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        if ui.add(egui::Button::new("−1").small()).on_hover_text("将 盾冲 减少 1").clicked() {
+                                                            let target = (current - 1).max(0);
+                                                            match SaveManager::set_item_count(json_data, "Hero_Item_Charge", target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔盾冲: {} → {}", current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("减少失败: {}", e)); }
+                                                            }
+                                                        }
+                                                        if ui.add(egui::Button::new("+1").small()).on_hover_text("将 盾冲 增加 1").clicked() {
+                                                            let target = current + 1;
+                                                            match SaveManager::set_item_count(json_data, "Hero_Item_Charge", target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔盾冲: {} → {}", current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("增加失败: {}", e)); }
+                                                            }
+                                                        }
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_set_count", &lang));
+                                                        ui.text_edit_singleline(&mut edit_state.new_charge)
+                                                            .on_hover_text("手动输入 盾冲 的新数量");
+                                                        if ui.button(t("apply_btn", &lang)).clicked() {
+                                                            if let Ok(new_val) = edit_state.new_charge.trim().parse::<i32>() {
+                                                                match SaveManager::set_item_count(json_data, "Hero_Item_Charge", new_val) {
+                                                                    Ok(_) => {
+                                                                        edit_state.add_log("INFO", &format!("✔已修改 盾冲: {} → {}", current, new_val));
+                                                                        edit_state.new_charge.clear();
+                                                                    }
+                                                                    Err(e) => {
+                                                                        edit_state.add_log("ERROR", &format!("修改失败: {}", e));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                            });
+                                            ui.add_space(4.0);
+                                        }
+                                        if has_front_armor {
+                                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                                ui.vertical(|ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(egui::RichText::new("正面护甲 (Front Armor)").strong());
+                                                        if ui.add(egui::Button::new("📋").small()).on_hover_text(t("copy_item_code", &lang)).clicked() {
+                                                            ui.output_mut(|o| o.copied_text = "Hero_Item_FrontArmor".to_string());
+                                                        }
+                                                    });
+                                                    let current = SaveManager::get_inventory_item_count(json_data, "Hero_Item_FrontArmor");
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_total", &lang));
+                                                        ui.monospace(current.to_string());
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        if ui.add(egui::Button::new("−1").small()).on_hover_text("将 正面护甲 减少 1").clicked() {
+                                                            let target = (current - 1).max(0);
+                                                            match SaveManager::set_item_count(json_data, "Hero_Item_FrontArmor", target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔正面护甲: {} → {}", current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("减少失败: {}", e)); }
+                                                            }
+                                                        }
+                                                        if ui.add(egui::Button::new("+1").small()).on_hover_text("将 正面护甲 增加 1").clicked() {
+                                                            let target = current + 1;
+                                                            match SaveManager::set_item_count(json_data, "Hero_Item_FrontArmor", target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔正面护甲: {} → {}", current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("增加失败: {}", e)); }
+                                                            }
+                                                        }
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_set_count", &lang));
+                                                        ui.text_edit_singleline(&mut edit_state.new_front_armor)
+                                                            .on_hover_text("手动输入 正面护甲 的新数量");
+                                                        if ui.button(t("apply_btn", &lang)).clicked() {
+                                                            if let Ok(new_val) = edit_state.new_front_armor.trim().parse::<i32>() {
+                                                                match SaveManager::set_item_count(json_data, "Hero_Item_FrontArmor", new_val) {
+                                                                    Ok(_) => {
+                                                                        edit_state.add_log("INFO", &format!("✔已修改 正面护甲: {} → {}", current, new_val));
+                                                                        edit_state.new_front_armor.clear();
+                                                                    }
+                                                                    Err(e) => {
+                                                                        edit_state.add_log("ERROR", &format!("修改失败: {}", e));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                            });
+                                            ui.add_space(4.0);
+                                        }
+                                        if has_speed_up {
+                                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                                ui.vertical(|ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(egui::RichText::new("心灵加速器 (Speed Up)").strong());
+                                                        if ui.add(egui::Button::new("📋").small()).on_hover_text(t("copy_item_code", &lang)).clicked() {
+                                                            ui.output_mut(|o| o.copied_text = "Hero_Item_SpeedUp".to_string());
+                                                        }
+                                                    });
+                                                    let current = SaveManager::get_inventory_item_count(json_data, "Hero_Item_SpeedUp");
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_total", &lang));
+                                                        ui.monospace(current.to_string());
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        if ui.add(egui::Button::new("−1").small()).on_hover_text("将 心灵加速器 减少 1").clicked() {
+                                                            let target = (current - 1).max(0);
+                                                            match SaveManager::set_item_count(json_data, "Hero_Item_SpeedUp", target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔心灵加速器: {} → {}", current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("减少失败: {}", e)); }
+                                                            }
+                                                        }
+                                                        if ui.add(egui::Button::new("+1").small()).on_hover_text("将 心灵加速器 增加 1").clicked() {
+                                                            let target = current + 1;
+                                                            match SaveManager::set_item_count(json_data, "Hero_Item_SpeedUp", target) {
+                                                                Ok(_) => { edit_state.add_log("INFO", &format!("✔心灵加速器: {} → {}", current, target)); }
+                                                                Err(e) => { edit_state.add_log("ERROR", &format!("增加失败: {}", e)); }
+                                                            }
+                                                        }
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(t("inv_set_count", &lang));
+                                                        ui.text_edit_singleline(&mut edit_state.new_speed_up)
+                                                            .on_hover_text("手动输入 心灵加速器 的新数量");
+                                                        if ui.button(t("apply_btn", &lang)).clicked() {
+                                                            if let Ok(new_val) = edit_state.new_speed_up.trim().parse::<i32>() {
+                                                                match SaveManager::set_item_count(json_data, "Hero_Item_SpeedUp", new_val) {
+                                                                    Ok(_) => {
+                                                                        edit_state.add_log("INFO", &format!("✔已修改 心灵加速器: {} → {}", current, new_val));
+                                                                        edit_state.new_speed_up.clear();
+                                                                    }
+                                                                    Err(e) => {
+                                                                        edit_state.add_log("ERROR", &format!("修改失败: {}", e));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                            });
+                                            ui.add_space(4.0);
+                                        }
+                                    }
 
                                     });
                                 });
@@ -1524,6 +1757,7 @@ impl ModifierApp {
                             Self::show_item_editor(
                                 ui, json_data, hero_key, details.clone(),
                                 edit_state, recruited_heroes, hero_details, language,
+                                &detected_codes,
                             );
                         });
                     });
@@ -1655,6 +1889,7 @@ impl ModifierApp {
         recruited_heroes: &mut Vec<HeroDetails>,
         hero_details: &mut Option<HeroDetails>,
         language: &Language,
+        detected_codes: &[String],
     ) {
         ui.group(|ui| {
             if let Some(ref item_info) = details.item_info {
@@ -1752,38 +1987,119 @@ impl ModifierApp {
                 });
             }
 
-            // Mod Items section
-            ui.separator();
-            ui.label(egui::RichText::new(t("mod_items_title", language)).strong());
-            let mod_label = if edit_state.mod_items_expanded { t("collapse_label", language) } else { t("expand_label", language) };
-            if ui.selectable_label(edit_state.mod_items_expanded, mod_label).clicked() { edit_state.mod_items_expanded = !edit_state.mod_items_expanded; }
-            if edit_state.mod_items_expanded {
-                for entry in upgrade_dictionary::ITEM_DICTIONARY_MOD_VERSION.iter() {
-                    ui.horizontal(|ui| {
-                        if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
-                            let old_name = details.item_info.as_ref().map_or("", |i| i.name.as_str()).to_string();
-                            let old_level = details.item_info.as_ref().map_or(0, |i| i.level);
-                            match SaveManager::modify_hero_upgrade(
-                                json_data, hero_key, "itemUpgrade", entry.code, old_level,
-                            ) {
-                                Ok(_) => {
-                                    edit_state.add_log("INFO", &format!("✔装备已修改 {} →{}", old_name, entry.chinese_name));
-                                    if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
-                                        *recruited_heroes = heroes;
-                                        if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
-                                            *hero_details = Some(updated_hero);
+            // Mod & Fusion Items section — 检测到插件则只显示匹配项，否则全部显示
+            if !detected_codes.is_empty() {
+                // 有检测到插件 → 只显示匹配的装备
+                let has_mod_items = upgrade_dictionary::ITEM_DICTIONARY_MOD_VERSION.iter()
+                    .any(|e| detected_codes.iter().any(|c| c == e.code));
+                if has_mod_items {
+                    ui.separator();
+                    ui.label(egui::RichText::new(t("mod_items_title", language)).strong());
+                    let mod_label = if edit_state.mod_items_expanded { t("collapse_label", language) } else { t("expand_label", language) };
+                    if ui.selectable_label(edit_state.mod_items_expanded, mod_label).clicked() { edit_state.mod_items_expanded = !edit_state.mod_items_expanded; }
+                    if edit_state.mod_items_expanded {
+                        for entry in upgrade_dictionary::ITEM_DICTIONARY_MOD_VERSION.iter() {
+                            if !detected_codes.iter().any(|c| c == entry.code) {
+                                continue;
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                                    let old_name = details.item_info.as_ref().map_or("", |i| i.name.as_str()).to_string();
+                                    let old_level = details.item_info.as_ref().map_or(0, |i| i.level);
+                                    match SaveManager::modify_hero_upgrade(
+                                        json_data, hero_key, "itemUpgrade", entry.code, old_level,
+                                    ) {
+                                        Ok(_) => {
+                                            edit_state.add_log("INFO", &format!("✔装备已修改 {} →{}", old_name, entry.chinese_name));
+                                            if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                                *recruited_heroes = heroes;
+                                                if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                                    *hero_details = Some(updated_hero);
+                                                }
+                                            }
                                         }
+                                        Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
                                     }
                                 }
-                                Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
+                                if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
+                                    ui.output_mut(|o| o.copied_text = entry.code.to_string());
+                                }
+                                ui.monospace(entry.code);
+                                ui.label(entry.chinese_name);
+                            });
+                        }
+                    }
+                }
+            } else {
+                // 无插件 → 完整显示所有面板
+                // Mod Items section
+                ui.separator();
+                ui.label(egui::RichText::new(t("mod_items_title", language)).strong());
+                let mod_label = if edit_state.mod_items_expanded { t("collapse_label", language) } else { t("expand_label", language) };
+                if ui.selectable_label(edit_state.mod_items_expanded, mod_label).clicked() { edit_state.mod_items_expanded = !edit_state.mod_items_expanded; }
+                if edit_state.mod_items_expanded {
+                    for entry in upgrade_dictionary::ITEM_DICTIONARY_MOD_VERSION.iter() {
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                                let old_name = details.item_info.as_ref().map_or("", |i| i.name.as_str()).to_string();
+                                let old_level = details.item_info.as_ref().map_or(0, |i| i.level);
+                                match SaveManager::modify_hero_upgrade(
+                                    json_data, hero_key, "itemUpgrade", entry.code, old_level,
+                                ) {
+                                    Ok(_) => {
+                                        edit_state.add_log("INFO", &format!("✔装备已修改 {} →{}", old_name, entry.chinese_name));
+                                        if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                            *recruited_heroes = heroes;
+                                            if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                                *hero_details = Some(updated_hero);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
+                                }
                             }
-                        }
-                        if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
-                            ui.output_mut(|o| o.copied_text = entry.code.to_string());
-                        }
-                        ui.monospace(entry.code);
-                        ui.label(entry.chinese_name);
-                    });
+                            if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
+                                ui.output_mut(|o| o.copied_text = entry.code.to_string());
+                            }
+                            ui.monospace(entry.code);
+                            ui.label(entry.chinese_name);
+                        });
+                    }
+                }
+
+                // Fusion Items section
+                ui.separator();
+                ui.label(egui::RichText::new(t("fusion_items_title", language)).strong());
+                let fusion_label = if edit_state.fusion_items_expanded { t("collapse_label", language) } else { t("expand_label", language) };
+                if ui.selectable_label(edit_state.fusion_items_expanded, fusion_label).clicked() { edit_state.fusion_items_expanded = !edit_state.fusion_items_expanded; }
+                if edit_state.fusion_items_expanded {
+                    for entry in upgrade_dictionary::ITEM_DICTIONARY_FUSION_NEW.iter() {
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                                let old_name = details.item_info.as_ref().map_or("", |i| i.name.as_str()).to_string();
+                                let old_level = details.item_info.as_ref().map_or(0, |i| i.level);
+                                match SaveManager::modify_hero_upgrade(
+                                    json_data, hero_key, "itemUpgrade", entry.code, old_level,
+                                ) {
+                                    Ok(_) => {
+                                        edit_state.add_log("INFO", &format!("✔装备已修改 {} →{}", old_name, entry.chinese_name));
+                                        if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                            *recruited_heroes = heroes;
+                                            if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                                *hero_details = Some(updated_hero);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
+                                }
+                            }
+                            if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
+                                ui.output_mut(|o| o.copied_text = entry.code.to_string());
+                            }
+                            ui.monospace(entry.code);
+                            ui.label(entry.chinese_name);
+                        });
+                    }
                 }
             }
         });
@@ -1906,6 +2222,8 @@ impl ModifierApp {
                         if has_1trait_regenerative { "追猎" } else { "医疗训练" }
                     } else if entry.code == "Hero_Trait_AxeThrower" {
                         if has_1trait_regenerative { "掷斧手" } else { "投斧大队" }
+                    } else if entry.code == "Hero_Trait_CheaperClass" {
+                        if has_1trait_regenerative { "迅捷精英" } else { "快速精通" }
                     } else {
                         entry.chinese_name
                     };
@@ -1936,13 +2254,83 @@ impl ModifierApp {
                     });
                 }
             } else {
-                // 未选择游戏根目录 → 保持原版UI：显示魔改版/战旗版折叠面板
+                // 未选择游戏根目录 → 保持原版UI：显示魔改版/融合版/战旗版折叠面板
                 ui.separator();
                 ui.label(egui::RichText::new(t("mod_traits_title", language)).strong());
                 let mod_label = if edit_state.mod_traits_expanded { t("collapse_label", language) } else { t("expand_label", language) };
                 if ui.selectable_label(edit_state.mod_traits_expanded, mod_label).clicked() { edit_state.mod_traits_expanded = !edit_state.mod_traits_expanded; }
                 if edit_state.mod_traits_expanded {
                     for entry in upgrade_dictionary::TRAIT_DICTIONARY_MOD_VERSION.iter() {
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                                let old_name = details.trait_info.as_ref().map_or("", |t| t.name.as_str()).to_string();
+                                let old_level = details.trait_info.as_ref().map_or(0, |t| t.level);
+                                match SaveManager::modify_hero_upgrade(
+                                    json_data, hero_key, "traitUpgrade", entry.code, old_level,
+                                ) {
+                                    Ok(_) => {
+                                        edit_state.add_log("INFO", &format!("✔特质已修改 {} →{}", old_name, entry.chinese_name));
+                                        if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                            *recruited_heroes = heroes;
+                                            if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                                *hero_details = Some(updated_hero);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
+                                }
+                            }
+                            if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
+                                ui.output_mut(|o| o.copied_text = entry.code.to_string());
+                            }
+                            ui.monospace(entry.code);
+                            ui.label(entry.chinese_name);
+                        });
+                    }
+                }
+
+                // 融合版特质面板
+                ui.separator();
+                ui.label(egui::RichText::new(t("fusion_traits_title", language)).strong());
+                let fusion_label = if edit_state.fusion_traits_expanded { t("collapse_label", language) } else { t("expand_label", language) };
+                if ui.selectable_label(edit_state.fusion_traits_expanded, fusion_label).clicked() { edit_state.fusion_traits_expanded = !edit_state.fusion_traits_expanded; }
+                if edit_state.fusion_traits_expanded {
+                    for entry in upgrade_dictionary::TRAIT_DICTIONARY_FUSION_NEW.iter() {
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                                let old_name = details.trait_info.as_ref().map_or("", |t| t.name.as_str()).to_string();
+                                let old_level = details.trait_info.as_ref().map_or(0, |t| t.level);
+                                match SaveManager::modify_hero_upgrade(
+                                    json_data, hero_key, "traitUpgrade", entry.code, old_level,
+                                ) {
+                                    Ok(_) => {
+                                        edit_state.add_log("INFO", &format!("✔特质已修改 {} →{}", old_name, entry.chinese_name));
+                                        if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                            *recruited_heroes = heroes;
+                                            if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                                *hero_details = Some(updated_hero);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
+                                }
+                            }
+                            if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
+                                ui.output_mut(|o| o.copied_text = entry.code.to_string());
+                            }
+                            ui.monospace(entry.code);
+                            ui.label(entry.chinese_name);
+                        });
+                    }
+                }
+
+                // 旧灰复燃的战旗特质面板
+                ui.separator();
+                ui.label(egui::RichText::new(t("oldgrey_flag_traits_title", language)).strong());
+                let oldgrey_label = if edit_state.oldgrey_flag_traits_expanded { t("collapse_label", language) } else { t("expand_label", language) };
+                if ui.selectable_label(edit_state.oldgrey_flag_traits_expanded, oldgrey_label).clicked() { edit_state.oldgrey_flag_traits_expanded = !edit_state.oldgrey_flag_traits_expanded; }
+                if edit_state.oldgrey_flag_traits_expanded {
+                    for entry in upgrade_dictionary::TRAIT_DICTIONARY_OLDGREY_FLAG_LEGACY.iter() {
                         ui.horizontal(|ui| {
                             if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
                                 let old_name = details.trait_info.as_ref().map_or("", |t| t.name.as_str()).to_string();
