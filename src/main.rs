@@ -842,16 +842,16 @@ impl ModifierApp {
                     } else {
                         t("select_game_folder", &lang)
                     };
-                    ui.horizontal(|ui| {
-                        if ui.button(btn_label).clicked() {
-                            self.try_select_game_folder();
+                    let btn_min_size = egui::Vec2::new(320.0, 0.0);
+                    if ui.add(egui::Button::new(btn_label).min_size(btn_min_size)).clicked() {
+                        self.try_select_game_folder();
+                    }
+                    if self.app_settings.game_folder_path.is_some() {
+                        ui.add_space(4.0);
+                        if ui.add(egui::Button::new(t("clear_game_folder", &lang)).min_size(btn_min_size)).clicked() {
+                            self.try_clear_game_folder();
                         }
-                        if self.app_settings.game_folder_path.is_some() {
-                            if ui.button(t("clear_game_folder", &lang)).clicked() {
-                                self.try_clear_game_folder();
-                            }
-                        }
-                    });
+                    }
 
                     // 显示插件扫描结果
                     if !self.app_settings.plugins_info.is_empty() {
@@ -1204,16 +1204,16 @@ impl ModifierApp {
                                         } else {
                                             t("select_game_folder", &lang)
                                         };
-                                        ui.horizontal(|ui| {
-                                            if ui.button(btn_label).clicked() {
-                                                select_game_folder = true;
+                                        let btn_min_size = egui::Vec2::new(320.0, 0.0);
+                                        if ui.add(egui::Button::new(btn_label).min_size(btn_min_size)).clicked() {
+                                            select_game_folder = true;
+                                        }
+                                        if self.app_settings.game_folder_path.is_some() {
+                                            ui.add_space(4.0);
+                                            if ui.add(egui::Button::new(t("clear_game_folder", &lang)).min_size(btn_min_size)).clicked() {
+                                                clear_game_folder = true;
                                             }
-                                            if self.app_settings.game_folder_path.is_some() {
-                                                if ui.button(t("clear_game_folder", &lang)).clicked() {
-                                                    clear_game_folder = true;
-                                                }
-                                            }
-                                        });
+                                        }
 
                                         if !self.app_settings.plugins_info.is_empty() {
                                             ui.add_space(8.0);
