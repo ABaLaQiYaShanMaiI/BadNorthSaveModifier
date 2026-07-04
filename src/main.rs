@@ -12,7 +12,7 @@ mod upgrade_dictionary;
 mod settings;
 
 use save_manager::{SaveManager, HeroDetails};
-use settings::{AppSettings, ColorMode, Language};
+use settings::{AppSettings, ColorMode, Language, PluginInfo};
 
 // ============ Constants ============
 const APP_TITLE: &str = "BadNorthSaveModifier存档修改器";
@@ -522,6 +522,17 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "fusion_traits_title"     => "融合版- 专属特质",
             "oldgrey_flag_traits_title" => "旧灰复燃的战旗- 专属特质",
             "converter_builtin"       => "✓ 转换器已内置（无需外部EXE）",
+            "game_folder"      => "游戏根目录：",
+            "select_game_folder" => "选择游戏根目录（BadNorth 所在文件夹）",
+            "reselect_game_folder" => "重新选择游戏根目录",
+            "game_folder_not_set" => "未设置",
+            "game_folder_scanning" => "正在扫描插件...",
+            "game_folder_scan_failed" => "扫描插件失败",
+            "plugins_found" => "已识别到插件信息",
+            "plugins_count" => "检测到 {} 个 Trait 插件文件夹",
+            "plugins_detail_folder" => "文件夹: {}",
+            "plugins_detail_pngs" => "PNG 图片: {}",
+            "clear_game_folder" => "清除",
             _              => "",
         },
         Language::English => match key {
@@ -638,6 +649,17 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "fusion_traits_title"     => "Fusion - Exclusive Traits",
             "oldgrey_flag_traits_title" => "Rebirth Flag - Exclusive Traits",
             "converter_builtin"       => "✓ Converter is built-in (no external EXE needed)",
+            "game_folder"      => "Game Root Folder:",
+            "select_game_folder" => "Select Game Root Folder (where BadNorth is)",
+            "reselect_game_folder" => "Re-select Game Root Folder",
+            "game_folder_not_set" => "Not set",
+            "game_folder_scanning" => "Scanning plugins...",
+            "game_folder_scan_failed" => "Plugin scan failed",
+            "plugins_found" => "Plugin info detected",
+            "plugins_count" => "Detected {} Trait plugin folders",
+            "plugins_detail_folder" => "Folder: {}",
+            "plugins_detail_pngs" => "PNG files: {}",
+            "clear_game_folder" => "Clear",
             _              => "",
         },
     }
@@ -755,12 +777,15 @@ impl eframe::App for ModifierApp {
 impl ModifierApp {
     fn show_file_selection_ui(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
-            ui.add_space(50.0);
-            ui.heading(APP_TITLE);
             ui.add_space(30.0);
+            ui.heading(APP_TITLE);
+            ui.add_space(15.0);
 
+            let lang = self.app_settings.language.clone();
+
+            // ---- 存档文件选择区域（高频操作，放在上方） ----
             ui.label(t("select_save", &self.app_settings.language));
-            ui.add_space(20.0);
+            ui.add_space(12.0);
 
             if ui.button(t("browse_save", &self.app_settings.language)).clicked() {
                 let initial_dir = std::env::current_exe()
@@ -778,6 +803,67 @@ impl ModifierApp {
                     self.try_load_save(&path);
                 }
             }
+
+            ui.add_space(24.0);
+
+            // ---- 游戏根目录选择区域 ----
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.set_max_width(600.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new(t("game_folder", &lang)).strong());
+                    ui.add_space(4.0);
+
+                    let path_display = match &self.app_settings.game_folder_path {
+                        Some(p) => p.display().to_string(),
+                        None => t("game_folder_not_set", &lang).to_string(),
+                    };
+                    ui.label(
+                        egui::RichText::new(&path_display)
+                            .color(if self.app_settings.game_folder_path.is_some() {
+                                egui::Color32::from_rgb(34, 139, 34)
+                            } else {
+                                egui::Color32::GRAY
+                            }),
+                    );
+
+                    ui.add_space(4.0);
+
+                    let btn_label = if self.app_settings.game_folder_path.is_some() {
+                        t("reselect_game_folder", &lang)
+                    } else {
+                        t("select_game_folder", &lang)
+                    };
+                    ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button(btn_label).clicked() {
+                                self.try_select_game_folder();
+                            }
+                            if self.app_settings.game_folder_path.is_some() {
+                                if ui.button(t("clear_game_folder", &lang)).clicked() {
+                                    self.try_clear_game_folder();
+                                }
+                            }
+                        });
+                    });
+
+                    // 显示插件扫描结果
+                    if !self.app_settings.plugins_info.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(t("plugins_found", &lang))
+                                .color(egui::Color32::from_rgb(34, 139, 34)),
+                        );
+                        ui.label(
+                            egui::RichText::new(&format!(
+                                "{}",
+                                self.app_settings.plugins_info.len()
+                            ))
+                            .small()
+                            .color(egui::Color32::GRAY),
+                        );
+                    }
+                });
+            });
         });
 
         if let Some(err) = &self.error_message {
@@ -847,6 +933,8 @@ impl ModifierApp {
         let mut do_save = false;
         let mut do_export: Option<std::path::PathBuf> = None;
         let mut do_refresh = false;
+        let mut select_game_folder = false;
+        let mut clear_game_folder = false;
         let lang = self.app_settings.language.clone();
 
         {
@@ -1084,6 +1172,70 @@ impl ModifierApp {
 
                                         ui.add_space(16.0);
 
+                                        // 游戏根目录选择
+                                        ui.separator();
+                                        ui.label(egui::RichText::new(t("game_folder", &lang)).strong());
+                                        ui.add_space(4.0);
+
+                                        let path_display = match &self.app_settings.game_folder_path {
+                                            Some(p) => p.display().to_string(),
+                                            None => t("game_folder_not_set", &lang).to_string(),
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(&path_display)
+                                                .color(if self.app_settings.game_folder_path.is_some() {
+                                                    egui::Color32::from_rgb(34, 139, 34)
+                                                } else {
+                                                    egui::Color32::GRAY
+                                                }),
+                                        );
+
+                                        ui.add_space(4.0);
+
+                                        let btn_label = if self.app_settings.game_folder_path.is_some() {
+                                            t("reselect_game_folder", &lang)
+                                        } else {
+                                            t("select_game_folder", &lang)
+                                        };
+                                        ui.horizontal(|ui| {
+                                            if ui.button(btn_label).clicked() {
+                                                select_game_folder = true;
+                                            }
+                                            if self.app_settings.game_folder_path.is_some() {
+                                                if ui.button(t("clear_game_folder", &lang)).clicked() {
+                                                    clear_game_folder = true;
+                                                }
+                                            }
+                                        });
+
+                                        if !self.app_settings.plugins_info.is_empty() {
+                                            ui.add_space(8.0);
+                                            ui.label(
+                                                egui::RichText::new(t("plugins_found", &lang))
+                                                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                                            );
+                                            egui::ScrollArea::vertical()
+                                                .id_source("settings_plugins_scroll")
+                                                .max_height(200.0)
+                                                .show(ui, |ui| {
+                                                    for plugin in &self.app_settings.plugins_info {
+                                                        ui.label(
+                                                            egui::RichText::new(&plugin.folder_name)
+                                                                .strong()
+                                                                .color(egui::Color32::LIGHT_BLUE),
+                                                        );
+                                                        let png_list = plugin.png_files.join(", ");
+                                                        ui.label(
+                                                            egui::RichText::new(&png_list)
+                                                                .small()
+                                                                .color(egui::Color32::GRAY),
+                                                        );
+                                                    }
+                                                });
+                                        }
+
+                                        ui.add_space(16.0);
+
                                         // 显示转换器已内置
                                         ui.label(egui::RichText::new(t("converter_builtin", &lang)).color(egui::Color32::from_rgb(34, 139, 34)));
                                     });
@@ -1092,6 +1244,7 @@ impl ModifierApp {
                             LeftMenuSelection::HeroList(Some(ref hero_key)) => {
                                 let hero_key_owned = hero_key.clone();
                                 let hero_opt = recruited_heroes.iter().find(|h| h.key == hero_key_owned).cloned();
+                                let plugins_info = self.app_settings.plugins_info.clone();
                                 if let Some(hero) = hero_opt {
                                     Self::show_hero_editor_vertical(
                                         ui,
@@ -1102,6 +1255,7 @@ impl ModifierApp {
                                         recruited_heroes,
                                         hero_details,
                                         &lang,
+                                        &plugins_info,
                                     );
                                 } else {
                                     ui.vertical_centered(|ui| {
@@ -1324,6 +1478,10 @@ impl ModifierApp {
             self.try_export_json(&export_path);
         } else if do_refresh {
             self.refresh_all_data();
+        } else if select_game_folder {
+            self.try_select_game_folder();
+        } else if clear_game_folder {
+            self.try_clear_game_folder();
         }
     }
 
@@ -1338,7 +1496,9 @@ impl ModifierApp {
         recruited_heroes: &mut Vec<HeroDetails>,
         hero_details: &mut Option<HeroDetails>,
         language: &Language,
+        plugins_info: &[PluginInfo],
     ) {
+        let detected_codes = AppSettings::get_detected_trait_codes(plugins_info);
         egui::ScrollArea::vertical()
             .id_source("hero_editor_scroll")
             .auto_shrink([false; 2])
@@ -1377,6 +1537,8 @@ impl ModifierApp {
                             Self::show_trait_editor(
                                 ui, json_data, hero_key, details.clone(),
                                 edit_state, recruited_heroes, hero_details, language,
+                                &detected_codes,
+                                plugins_info,
                             );
                         });
                     });
@@ -1636,7 +1798,10 @@ impl ModifierApp {
         recruited_heroes: &mut Vec<HeroDetails>,
         hero_details: &mut Option<HeroDetails>,
         language: &Language,
+        detected_codes: &[String],
+        plugins_info: &[PluginInfo],
     ) {
+        let has_1trait_regenerative = AppSettings::has_png(plugins_info, "1trait_regenerative.png");
         ui.group(|ui| {
             if let Some(ref trait_info) = details.trait_info {
                 ui.horizontal(|ui| {
@@ -1729,13 +1894,21 @@ impl ModifierApp {
                 });
             }
 
-            // Mod Traits section
-            ui.separator();
-            ui.label(egui::RichText::new(t("mod_traits_title", language)).strong());
-            let mod_label = if edit_state.mod_traits_expanded { t("collapse_label", language) } else { t("expand_label", language) };
-            if ui.selectable_label(edit_state.mod_traits_expanded, mod_label).clicked() { edit_state.mod_traits_expanded = !edit_state.mod_traits_expanded; }
-            if edit_state.mod_traits_expanded {
+            // Detected / Mod Traits section
+            if !detected_codes.is_empty() {
+                // 用户已选择游戏根目录 → 只显示检测到的新特质
                 for entry in upgrade_dictionary::TRAIT_DICTIONARY_MOD_VERSION.iter() {
+                    if !detected_codes.iter().any(|c| c == entry.code) {
+                        continue;
+                    }
+                    // 动态标签: 根据 1trait_regenerative.png 判断战旗版 vs 魔改版
+                    let display_name = if entry.code == "Hero_Trait_Regenerative" {
+                        if has_1trait_regenerative { "追猎" } else { "医疗训练" }
+                    } else if entry.code == "Hero_Trait_AxeThrower" {
+                        if has_1trait_regenerative { "掷斧手" } else { "投斧大队" }
+                    } else {
+                        entry.chinese_name
+                    };
                     ui.horizontal(|ui| {
                         if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
                             let old_name = details.trait_info.as_ref().map_or("", |t| t.name.as_str()).to_string();
@@ -1759,11 +1932,96 @@ impl ModifierApp {
                             ui.output_mut(|o| o.copied_text = entry.code.to_string());
                         }
                         ui.monospace(entry.code);
-                        ui.label(entry.chinese_name);
+                        ui.label(display_name);
                     });
+                }
+            } else {
+                // 未选择游戏根目录 → 保持原版UI：显示魔改版/战旗版折叠面板
+                ui.separator();
+                ui.label(egui::RichText::new(t("mod_traits_title", language)).strong());
+                let mod_label = if edit_state.mod_traits_expanded { t("collapse_label", language) } else { t("expand_label", language) };
+                if ui.selectable_label(edit_state.mod_traits_expanded, mod_label).clicked() { edit_state.mod_traits_expanded = !edit_state.mod_traits_expanded; }
+                if edit_state.mod_traits_expanded {
+                    for entry in upgrade_dictionary::TRAIT_DICTIONARY_MOD_VERSION.iter() {
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                                let old_name = details.trait_info.as_ref().map_or("", |t| t.name.as_str()).to_string();
+                                let old_level = details.trait_info.as_ref().map_or(0, |t| t.level);
+                                match SaveManager::modify_hero_upgrade(
+                                    json_data, hero_key, "traitUpgrade", entry.code, old_level,
+                                ) {
+                                    Ok(_) => {
+                                        edit_state.add_log("INFO", &format!("✔特质已修改 {} →{}", old_name, entry.chinese_name));
+                                        if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                            *recruited_heroes = heroes;
+                                            if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                                *hero_details = Some(updated_hero);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => { edit_state.add_log("ERROR", &format!("修改失败: {}", e)); }
+                                }
+                            }
+                            if ui.add(egui::Button::new("📋").small()).on_hover_text("复制").clicked() {
+                                ui.output_mut(|o| o.copied_text = entry.code.to_string());
+                            }
+                            ui.monospace(entry.code);
+                            ui.label(entry.chinese_name);
+                        });
+                    }
                 }
             }
         });
+    }
+
+    // ============ Game Folder Selection ============
+
+    fn try_clear_game_folder(&mut self) {
+        self.app_settings.game_folder_path = None;
+        self.app_settings.plugins_info = Vec::new();
+        let _ = self.app_settings.save();
+        self.success_message = Some("✔已清除游戏根目录地址".to_string());
+        self.message_timeout = 3.0;
+    }
+
+    fn try_select_game_folder(&mut self) {
+        let initial_dir = self
+            .app_settings
+            .game_folder_path
+            .clone()
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
+            });
+
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("选择游戏根目录（BadNorth 所在文件夹）");
+
+        if let Some(dir) = &initial_dir {
+            dialog = dialog.set_directory(dir);
+        }
+
+        if let Some(path) = dialog.pick_folder() {
+            self.app_settings.game_folder_path = Some(path.clone());
+
+            match AppSettings::scan_plugins(&path) {
+                Ok(plugins) => {
+                    self.app_settings.plugins_info = plugins;
+                    let _ = self.app_settings.save();
+                    self.success_message = Some("✔游戏根目录已设置，插件已扫描".to_string());
+                    self.error_message = None;
+                    self.message_timeout = 3.0;
+                }
+                Err(e) => {
+                    self.app_settings.plugins_info = Vec::new();
+                    let _ = self.app_settings.save();
+                    self.error_message = Some(format!("扫描插件失败：{}", e));
+                    self.success_message = Some("✔游戏根目录已设置（但未扫描到插件）".to_string());
+                    self.message_timeout = 5.0;
+                }
+            }
+        }
     }
 
     // ============ Core I/O Methods ============
