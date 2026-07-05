@@ -257,6 +257,7 @@ impl SaveManager {
 
 
 
+
             "original_byte_length": 50,
             "original_record_type": 5,
             "start_offset": 0,
@@ -372,7 +373,7 @@ impl SaveManager {
             if old_name.contains("Cornucopia") || new_name.contains("Cornucopia") {
                 warn!(
                     "⚠️操作涉及雅贝那（Cornucopia）：旧值「{}」→ 新值「{}」。\
-                    雅贝那效果由游戏引擎缓存，修改后建议重启游戏以刷新效果。",
+                     雅贝那效果由游戏引擎缓存，修改后建议重启游戏以刷新效果。",
                     old_name, new_name
                 );
             }
@@ -389,8 +390,8 @@ impl SaveManager {
         if !old_name.is_empty() && old_bytes != new_bytes {
             warn!(
                 "⚠️字符串长度变化：原始值「{}」{} 字节) →新值「{}」{} 字节)，差值{} 字节。\
-                若保存时出现 'Record size mismatch' 错误，原因在于游戏二进制格式要求各记录大小不变，\
-                但字段「{}」的字符串长度发生了变化（原 {} 字节，现 {} 字节）。",
+                 若保存时出现 'Record size mismatch' 错误，原因在于游戏二进制格式要求各记录大小不变，\
+                 但字段「{}」的字符串长度发生了变化（原 {} 字节，现 {} 字节）。",
                 old_name, old_bytes, new_name, new_bytes,
                 new_bytes as i32 - old_bytes as i32,
                 normalized_type, old_bytes, new_bytes
@@ -1047,6 +1048,8 @@ impl SaveManager {
             .unwrap_or(0)
     }
 
+    /// 查找存档中第一个 SerializableHeroUpgrade 类型的 class_type_id 和 class_type_name。
+    /// 用于创建新的装备/升级记录时确定其类型信息。
     fn find_serializable_hero_upgrade_class_type(json_value: &Value) -> Option<(u64, String)> {
         let records = json_value["records"].as_object()?;
         for (_id, record) in records.iter() {
@@ -1061,49 +1064,7 @@ impl SaveManager {
     }
 
     pub fn get_inventory_grail_count(json_value: &Value) -> i32 {
-        let (list_id_opt, array_id) = match Self::find_inventory_refs(json_value) {
-            Ok(refs) => refs,
-            Err(_) => return 0,
-        };
-
-        let size_limit = list_id_opt.map(|lid| Self::get_list_size(json_value, lid));
-
-        let values = match json_value["records"][&array_id.to_string()]["values"].as_array() {
-            Some(v) => v,
-            None => return 0,
-        };
-
-        let mut count = 0i32;
-        let mut logical_idx = 0i32;
-
-        for entry in values {
-            if let Some(limit) = size_limit {
-                if logical_idx >= limit {
-                    break;
-                }
-            }
-            match entry["type"].as_str() {
-                Some("Reference") => {
-                    if let Some(ref_id) = entry["id"].as_i64() {
-                        if Self::read_upgrade_record_name(json_value, ref_id) == GRAIL_UPGRADE_CODE {
-                            count += 1;
-                        }
-                    }
-                    logical_idx += 1;
-                }
-                Some("NullMultiple") => {
-                    let c = entry["count"].as_i64().unwrap_or(1) as i32;
-                    logical_idx += c;
-                }
-                Some("Null") => {
-                    logical_idx += 1;
-                }
-                _ => {
-                    logical_idx += 1;
-                }
-            }
-        }
-        count
+        Self::get_inventory_item_count(json_value, GRAIL_UPGRADE_CODE)
     }
 
     #[allow(dead_code)]
@@ -1113,33 +1074,7 @@ impl SaveManager {
 
     #[allow(dead_code)]
     pub fn get_hero_grail_count(json_value: &Value) -> i32 {
-        let records = match json_value["records"].as_object() {
-            Some(r) => r,
-            None => return 0,
-        };
-
-        let empty_vec = vec![];
-        let mut count = 0;
-
-        for (_record_id, record) in records.iter() {
-            let class_type_name = record["class_type_name"].as_str().unwrap_or("");
-            if !class_type_name.contains("HeroDefinition") {
-                continue;
-            }
-
-            let members = record["members"].as_array().unwrap_or(&empty_vec);
-            for member in members {
-                if member["name"].as_str() == Some("upgrade") {
-                    if let Some(ref_id) = member["id"].as_i64() {
-                        if Self::read_upgrade_record_name(json_value, ref_id) == GRAIL_UPGRADE_CODE {
-                            count += 1;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        count
+        Self::get_hero_item_count(json_value, GRAIL_UPGRADE_CODE)
     }
 
     #[allow(dead_code)]
@@ -1169,236 +1104,11 @@ impl SaveManager {
 
 
     pub fn add_grail_to_inventory(json_value: &mut Value) -> Result<()> {
-        let (list_id_opt, array_id) = Self::find_inventory_refs(json_value)?;
-
-        let current_size = list_id_opt.map(|lid| Self::get_list_size(json_value, lid)).unwrap_or(0);
-
-        let slot_index: usize;
-        let null_multiple_count: i32;
-        {
-            let values = json_value["records"][&array_id.to_string()]["values"]
-                .as_array()
-                .ok_or_else(|| anyhow!("BinaryArray {} has no values array", array_id))?;
-
-            let mut logical_idx = 0i32;
-            let mut found: Option<(usize, i32)> = None;
-            for (i, entry) in values.iter().enumerate() {
-                match entry["type"].as_str() {
-                    Some("Reference") => {
-                        logical_idx += 1;
-                    }
-                    Some("NullMultiple") => {
-                        if logical_idx >= current_size {
-                            let c = entry["count"].as_i64().unwrap_or(1) as i32;
-                            found = Some((i, c));
-                            break;
-                        }
-                        let c = entry["count"].as_i64().unwrap_or(1) as i32;
-                        logical_idx += c;
-                    }
-                    Some("Null") => {
-                        if logical_idx >= current_size {
-                            found = Some((i, 1));
-                            break;
-                        }
-                        logical_idx += 1;
-                    }
-                    _ => {
-                        logical_idx += 1;
-                    }
-                }
-            }
-            let (idx, nc) = found.ok_or_else(|| anyhow!("背包已满，没有可用的空余槽位"))?;
-            slot_index = idx;
-            null_multiple_count = nc;
-        }
-
-        let (class_type_id, class_type_name) = Self::find_serializable_hero_upgrade_class_type(json_value)
-            .ok_or_else(|| anyhow!("找不到SerializableHeroUpgrade 类型信息"))?;
-
-        let max_id = Self::find_max_record_id(json_value);
-        let upgrade_id = max_id + 1;
-        let upgrade_id_str = upgrade_id.to_string();
-
-        let initial_level = Self::get_item_initial_level(GRAIL_UPGRADE_CODE);
-
-
-
-        let extra_fields = Self::get_item_required_fields(GRAIL_UPGRADE_CODE);
-        let mut members = vec![
-            serde_json::json!({"name": "name",  "type": "String", "value": GRAIL_UPGRADE_CODE}),
-            serde_json::json!({"name": "level", "type": "Int32",  "value": initial_level}),
-        ];
-        for (_, field_value) in extra_fields {
-            members.push(field_value);
-        }
-        let upgrade_record = serde_json::json!({
-            "type": "Class",
-            "class_type_id": class_type_id,
-            "class_type_name": class_type_name,
-            "members": members
-        });
-        json_value["records"][&upgrade_id_str] = upgrade_record;
-
-        let metadata = Self::get_upgrade_record_metadata_template(json_value);
-        if let Some(meta_obj) = json_value.get_mut("record_metadata").and_then(|m| m.as_object_mut()) {
-            meta_obj.insert(upgrade_id_str.clone(), metadata);
-        }
-
-        if let Some(order) = json_value.get_mut("record_order").and_then(|v| v.as_array_mut()) {
-            let upgrade_id_i32 = i32::try_from(upgrade_id)
-                .map_err(|_| anyhow!("record ID {} exceeds i32 range", upgrade_id))?;
-            order.push(Value::Number(upgrade_id_i32.into()));
-        }
-
-
-
-
-        let new_entry = serde_json::json!({"type": "Reference", "id": upgrade_id});
-        if let Some(values) = json_value["records"][&array_id.to_string()]["values"].as_array_mut() {
-            if null_multiple_count > 1 {
-
-
-
-
-
-
-                values[slot_index] = new_entry;
-
-
-                let residual = serde_json::json!({"type": "NullMultiple", "count": null_multiple_count - 1});
-                values.insert(slot_index + 1, residual);
-            } else {
-
-                values[slot_index] = new_entry;
-            }
-        }
-
-        if let Some(lid) = list_id_opt {
-            Self::set_list_size(json_value, lid, current_size + 1)?;
-        }
-
-        info!(
-            "Added grail to inventory: upgrade_id={}, slot_index={}, null_multiple_count={}",
-            upgrade_id, slot_index, null_multiple_count
-        );
-        if null_multiple_count <= 255 {
-            warn!(
-                "⚠️背包圣杯已写入JSON，但存储时可能失败：\
-                BinaryArray 槽位原来是NullMultiple(count={})（ 字节），\
-                替换为Reference（ 字节）会导致记录字节长度变化。\
-                保存时若出现 'Record size mismatch' 错误，属于预期内的格式限制。",
-                null_multiple_count
-            );
-        }
-        Ok(())
+        Self::add_item_to_inventory(json_value, GRAIL_UPGRADE_CODE)
     }
 
-
-
-
     pub fn remove_grail_from_inventory(json_value: &mut Value) -> Result<()> {
-        let (list_id_opt, array_id) = Self::find_inventory_refs(json_value)?;
-        let current_size = list_id_opt.map(|lid| Self::get_list_size(json_value, lid)).unwrap_or(0);
-
-        let grail_json_index: usize;
-        {
-            let values = json_value["records"][&array_id.to_string()]["values"]
-                .as_array()
-                .ok_or_else(|| anyhow!("BinaryArray {} has no values array", array_id))?;
-
-            let mut logical_idx = 0i32;
-            let mut found: Option<usize> = None;
-            for (i, entry) in values.iter().enumerate() {
-                if logical_idx >= current_size {
-                    break;
-                }
-                match entry["type"].as_str() {
-                    Some("Reference") => {
-                        if let Some(ref_id) = entry["id"].as_i64() {
-                            if Self::read_upgrade_record_name(json_value, ref_id) == GRAIL_UPGRADE_CODE {
-                                found = Some(i);
-                                break;
-                            }
-                        }
-                        logical_idx += 1;
-                    }
-                    Some("NullMultiple") => {
-                        let c = entry["count"].as_i64().unwrap_or(1) as i32;
-                        logical_idx += c;
-                    }
-                    Some("Null") => {
-                        logical_idx += 1;
-                    }
-                    _ => {
-                        logical_idx += 1;
-                    }
-                }
-            }
-            grail_json_index = found.ok_or_else(|| anyhow!("背包中没有圣杯可移除"))?;
-        }
-
-        let last_item_json_index: usize;
-        {
-            let values = json_value["records"][&array_id.to_string()]["values"]
-                .as_array()
-                .ok_or_else(|| anyhow!("BinaryArray {} has no values array", array_id))?;
-
-            let mut logical_idx = 0i32;
-            let target_logical = current_size - 1;
-            let mut found: Option<usize> = None;
-            for (i, entry) in values.iter().enumerate() {
-                if logical_idx > target_logical {
-                    break;
-                }
-                match entry["type"].as_str() {
-                    Some("Reference") => {
-                        if logical_idx == target_logical {
-                            found = Some(i);
-                            break;
-                        }
-                        logical_idx += 1;
-                    }
-                    Some("NullMultiple") => {
-                        let c = entry["count"].as_i64().unwrap_or(1) as i32;
-                        if logical_idx + c > target_logical {
-
-                            break;
-                        }
-                        logical_idx += c;
-                    }
-                    Some("Null") => {
-                        if logical_idx == target_logical {
-                            found = Some(i);
-                            break;
-                        }
-                        logical_idx += 1;
-                    }
-                    _ => {
-                        logical_idx += 1;
-                    }
-                }
-            }
-            last_item_json_index = found.ok_or_else(|| anyhow!("找不到背包最后一个有效槽位"))?;
-        }
-
-
-        if let Some(values) = json_value["records"][&array_id.to_string()]["values"].as_array_mut() {
-            if grail_json_index != last_item_json_index {
-                values.swap(grail_json_index, last_item_json_index);
-            }
-
-
-
-            values[last_item_json_index] = serde_json::json!({"type": "NullMultiple", "count": 256});
-        }
-
-        if let Some(lid) = list_id_opt {
-            Self::set_list_size(json_value, lid, current_size - 1)?;
-        }
-
-        info!("Removed grail from inventory, new size={}", current_size - 1);
-        Ok(())
+        Self::remove_item_from_inventory(json_value, GRAIL_UPGRADE_CODE)
     }
 
     #[allow(dead_code)]
@@ -1844,12 +1554,13 @@ impl SaveManager {
         Ok(())
     }
 
-    item_count_shortcuts!(@dead_code bomb, BOMB_UPGRADE_CODE);
-    item_count_shortcuts!(@dead_code mine, MINE_UPGRADE_CODE);
-    item_count_shortcuts!(@dead_code philosophers_stone, PHILOSOPHERS_STONE_UPGRADE_CODE);
-    item_count_shortcuts!(@dead_code size, SIZE_UPGRADE_CODE);
-    item_count_shortcuts!(@dead_code warhammer, WARHAMMER_UPGRADE_CODE);
-    item_count_shortcuts!(@dead_code cornucopia, CORNUCOPIA_UPGRADE_CODE);
+    // 用宏生成所有快捷方法
+    item_count_shortcuts!(bomb, BOMB_UPGRADE_CODE);
+    item_count_shortcuts!(mine, MINE_UPGRADE_CODE);
+    item_count_shortcuts!(philosophers_stone, PHILOSOPHERS_STONE_UPGRADE_CODE);
+    item_count_shortcuts!(size, SIZE_UPGRADE_CODE);
+    item_count_shortcuts!(warhammer, WARHAMMER_UPGRADE_CODE);
+    item_count_shortcuts!(cornucopia, CORNUCOPIA_UPGRADE_CODE);
     item_count_shortcuts!(@dead_code war_horn, WAR_HORN_UPGRADE_CODE);
 
     pub fn get_all_inventory_items(json_value: &Value) -> Vec<(String, i32)> {
@@ -2064,4 +1775,3 @@ impl HeroDetails {
         }
     }
 }
-
