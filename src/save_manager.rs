@@ -114,12 +114,6 @@ impl SaveManager {
         Ok(json_value)
     }
 
-    /// Kept for backward compatibility with callers still passing editor_exe (ignored)
-    #[allow(dead_code)]
-    pub fn load_save_with_exe(save_path: &Path, _editor_exe: &Path) -> Result<Value> {
-        Self::load_save(save_path)
-    }
-
     pub fn export_json(json_value: &Value, export_path: &Path) -> Result<()> {
         let json_content = serde_json::to_string_pretty(json_value)?;
         fs::write(export_path, json_content)?;
@@ -146,12 +140,6 @@ impl SaveManager {
         fs::write(save_path, output_bytes)?;
         info!("存档已保存（内存转换，无需外部EXE）");
         Ok(())
-    }
-
-    /// Kept for backward compatibility with callers still passing editor_exe (ignored)
-    #[allow(dead_code)]
-    pub fn save_save_with_exe(save_path: &Path, json_value: &Value, _editor_exe: &Path) -> Result<()> {
-        Self::save_save(save_path, json_value)
     }
 
     fn normalize_upgrade_type(upgrade_type: &str) -> String {

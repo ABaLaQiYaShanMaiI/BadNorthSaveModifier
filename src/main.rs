@@ -1905,57 +1905,70 @@ impl ModifierApp {
                                         let has_speed_up = detected.iter().any(|c| c == "Hero_Item_SpeedUp");
 
                                         macro_rules! fancy_item_editor {
-                                            ($label:expr, $code:expr, $hover_decr:expr, $hover_incr:expr, $hover_set:expr, $input_field:ident) => {{
+                                            ($label:expr, $code:expr, $input_field:ident) => {{
                                                 egui::Frame::group(ui.style()).show(ui, |ui| {
                                                     ui.vertical(|ui| {
-                                                        ui.horizontal(|ui| {
-                                                            ui.label(egui::RichText::new($label).strong());
-                                                            if ui.add(egui::Button::new("📋").small()).on_hover_text(t("copy_item_code", &lang)).clicked() {
-                                                                ui.output_mut(|o| o.copied_text = $code.to_string());
-                                                            }
-                                                        });
-                                                        let current = SaveManager::get_inventory_item_count(json_data, $code);
+                                                        ui.label(egui::RichText::new($label).strong().heading());
+                                                        ui.separator();
+                                                        let total = SaveManager::get_total_item_count(json_data, $code);
+                                                        let hero  = SaveManager::get_hero_item_count(json_data, $code);
+                                                        let inv   = SaveManager::get_inventory_item_count(json_data, $code);
                                                         ui.horizontal(|ui| {
                                                             ui.label(t("inv_total", &lang));
-                                                            ui.monospace(current.to_string());
+                                                            ui.monospace(egui::RichText::new(total.to_string()).color(egui::Color32::GOLD));
+                                                            ui.label(t("inv_on_hero", &lang));
+                                                            ui.monospace(hero.to_string());
+                                                            ui.label(t("inv_in_inv", &lang));
+                                                            ui.monospace(inv.to_string());
                                                         });
                                                         ui.horizontal(|ui| {
-                                                            if ui.add(egui::Button::new("−1").small()).on_hover_text($hover_decr).clicked() {
-                                                                let target = (current - 1).max(0);
-                                                                match SaveManager::set_item_count(json_data, $code, target) {
-                                                                    Ok(_) => { edit_state.add_log("INFO", &format!("✔{}: {} → {}", $label, current, target)); }
-                                                                    Err(e) => { edit_state.add_log("ERROR", &format!("减少失败: {}", e)); }
-                                                                }
-                                                            }
-                                                            if ui.add(egui::Button::new("+1").small()).on_hover_text($hover_incr).clicked() {
-                                                                let target = current + 1;
-                                                                match SaveManager::set_item_count(json_data, $code, target) {
-                                                                    Ok(_) => { edit_state.add_log("INFO", &format!("✔{}: {} → {}", $label, current, target)); }
-                                                                    Err(e) => { edit_state.add_log("ERROR", &format!("增加失败: {}", e)); }
-                                                                }
+                                                            ui.label(t("inv_item_code", &lang));
+                                                            ui.monospace(egui::RichText::new($code).color(egui::Color32::from_rgb(34, 139, 34)));
+                                                            if ui.add(egui::Button::new("📋").small()).on_hover_text($code).clicked() {
+                                                                ui.output_mut(|o| o.copied_text = $code.to_string());
+                                                                edit_state.add_log("INFO", &format!("📋 已复制 {}", $code));
                                                             }
                                                         });
+                                                        ui.separator();
                                                         ui.horizontal(|ui| {
                                                             ui.label(t("inv_set_count", &lang));
-                                                            ui.text_edit_singleline(&mut edit_state.$input_field)
-                                                                .on_hover_text($hover_set);
+                                                            ui.text_edit_singleline(&mut edit_state.$input_field);
                                                             if ui.button(t("apply_btn", &lang)).clicked() {
-                                                                if let Ok(new_val) = edit_state.$input_field.trim().parse::<i32>() {
-                                                                    match SaveManager::set_item_count(json_data, $code, new_val) {
-                                                                        Ok(_) => {
-                                                                            edit_state.add_log("INFO", &format!("✔已修改 {}: {} → {}", $label, current, new_val));
-                                                                            edit_state.$input_field.clear();
-                                                                        }
-                                                                        Err(e) => {
-                                                                            edit_state.add_log("ERROR", &format!("修改失败: {}", e));
+                                                                if let Ok(n) = edit_state.$input_field.parse::<i32>() {
+                                                                    let current_total = SaveManager::get_total_inventory_count(json_data);
+                                                                    let to_add = (n - total).max(0);
+                                                                    if to_add > 0 && current_total + to_add > 20 {
+                                                                        edit_state.add_log("ERROR", &format!("❌设置失败：总数会超过容量（{} + {} > 20）", current_total, to_add));
+                                                                    } else {
+                                                                        match SaveManager::set_item_count(json_data, $code, n) {
+                                                                            Ok(_) => {
+                                                                                edit_state.add_log("INFO", &format!("✔{} 已设置 {}", $label, n));
+                                                                                edit_state.$input_field.clear();
+                                                                                if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) { *recruited_heroes = heroes; }
+                                                                            }
+                                                                            Err(e) => edit_state.add_log("ERROR", &format!("修改 {} 失败: {}", $label, e)),
                                                                         }
                                                                     }
                                                                 }
                                                             }
                                                         });
+                                                        ui.horizontal(|ui| {
+                                                            if ui.button("[+1]").clicked() {
+                                                                match SaveManager::increment_item_count(json_data, $code) {
+                                                                    Ok(n) => { edit_state.add_log("INFO", &format!("✔{} +1: {}", $label, n)); if let Ok(h) = SaveManager::get_recruited_heroes(json_data) { *recruited_heroes = h; } }
+                                                                    Err(e) => edit_state.add_log("ERROR", &format!("添加 {} 失败: {}", $label, e)),
+                                                                }
+                                                            }
+                                                            if ui.button("[-1]").clicked() {
+                                                                match SaveManager::decrement_item_count(json_data, $code) {
+                                                                    Ok(n) => { edit_state.add_log("INFO", &format!("✔{} -1: {}", $label, n)); if let Ok(h) = SaveManager::get_recruited_heroes(json_data) { *recruited_heroes = h; } }
+                                                                    Err(e) => edit_state.add_log("ERROR", &format!("移除 {} 失败: {}", $label, e)),
+                                                                }
+                                                            }
+                                                        });
                                                     });
                                                 });
-                                                ui.add_space(4.0);
+                                                ui.add_space(8.0);
                                             }};
                                         }
 
@@ -1963,13 +1976,13 @@ impl ModifierApp {
                                         if has_charge || has_front_armor || has_speed_up {
                                             // FancyTraits 装备被检测到 → 直接显示
                                             if has_charge {
-                                                fancy_item_editor!("盾冲 (Charge)", "Hero_Item_Charge", "将 盾冲 减少 1", "将 盾冲 增加 1", "手动输入 盾冲 的新数量", new_charge);
+                                                fancy_item_editor!("盾冲 (Charge)", "Hero_Item_Charge", new_charge);
                                             }
                                             if has_front_armor {
-                                                fancy_item_editor!("正面护甲 (Front Armor)", "Hero_Item_FrontArmor", "将 正面护甲 减少 1", "将 正面护甲 增加 1", "手动输入 正面护甲 的新数量", new_front_armor);
+                                                fancy_item_editor!("正面护甲 (Front Armor)", "Hero_Item_FrontArmor", new_front_armor);
                                             }
                                             if has_speed_up {
-                                                fancy_item_editor!("心灵加速器 (Speed Up)", "Hero_Item_SpeedUp", "将 心灵加速器 减少 1", "将 心灵加速器 增加 1", "手动输入 心灵加速器 的新数量", new_speed_up);
+                                                fancy_item_editor!("心灵加速器 (Speed Up)", "Hero_Item_SpeedUp", new_speed_up);
                                             }
                                         } else if !has_game_root {
                                             // 完全未选择游戏根目录 → 折叠面板备选
@@ -1978,9 +1991,9 @@ impl ModifierApp {
                                             let fusion_label = if edit_state.fusion_items_expanded { t("collapse_label", &lang) } else { t("expand_label", &lang) };
                                             if ui.selectable_label(edit_state.fusion_items_expanded, fusion_label).clicked() { edit_state.fusion_items_expanded = !edit_state.fusion_items_expanded; }
                                             if edit_state.fusion_items_expanded {
-                                                fancy_item_editor!("盾冲 (Charge)", "Hero_Item_Charge", "将 盾冲 减少 1", "将 盾冲 增加 1", "手动输入 盾冲 的新数量", new_charge);
-                                                fancy_item_editor!("正面护甲 (Front Armor)", "Hero_Item_FrontArmor", "将 正面护甲 减少 1", "将 正面护甲 增加 1", "手动输入 正面护甲 的新数量", new_front_armor);
-                                                fancy_item_editor!("心灵加速器 (Speed Up)", "Hero_Item_SpeedUp", "将 心灵加速器 减少 1", "将 心灵加速器 增加 1", "手动输入 心灵加速器 的新数量", new_speed_up);
+                                                fancy_item_editor!("盾冲 (Charge)", "Hero_Item_Charge", new_charge);
+                                                fancy_item_editor!("正面护甲 (Front Armor)", "Hero_Item_FrontArmor", new_front_armor);
+                                                fancy_item_editor!("心灵加速器 (Speed Up)", "Hero_Item_SpeedUp", new_speed_up);
                                             }
                                         }
                                         // 已选择游戏根目录但非 FancyTraits → 不显示任何额外装备面板
