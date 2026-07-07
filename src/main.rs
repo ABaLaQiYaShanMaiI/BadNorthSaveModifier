@@ -2367,15 +2367,23 @@ impl ModifierApp {
                 }
             });
 
-            if details.item_info.is_some() {
-                if ui.button(egui::RichText::new(t("remove_item", language)).color(egui::Color32::LIGHT_RED)).clicked() {
-                    let old_name = details.item_info.as_ref().map_or("", |i| i.name.as_str()).to_string();
+            ui.horizontal(|ui| {
+                if ui.button(egui::RichText::new(t("init_item", language)).color(egui::Color32::LIGHT_RED)).on_hover_text("清除装备，恢复为无装备状态").clicked() {
                     match SaveManager::clear_hero_upgrade(json_data, hero_key, "itemUpgrade") {
-                        Ok(_) => { edit_state.add_log("INFO", &format!("✔已移除装备 {}", old_name)); }
-                        Err(e) => { edit_state.add_log("ERROR", &format!("移除装备失败: {}", e)); }
+                        Ok(_) => {
+                            edit_state.add_log("INFO", "✔装备已初始化（无装备）");
+                            if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                *recruited_heroes = heroes;
+                                if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                    *hero_details = Some(updated_hero);
+                                }
+                            }
+                            edit_state.new_item_text.clear();
+                        }
+                        Err(e) => { edit_state.add_log("ERROR", &format!("初始化装备失败: {}", e)); }
                     }
                 }
-            }
+            });
 
             ui.separator();
             ui.horizontal(|ui| {
@@ -2620,15 +2628,23 @@ impl ModifierApp {
                 }
             });
 
-            if details.trait_info.is_some() {
-                if ui.button(egui::RichText::new(t("remove_trait", language)).color(egui::Color32::LIGHT_RED)).clicked() {
-                    let old_name = details.trait_info.as_ref().map_or("", |t| t.name.as_str()).to_string();
+            ui.horizontal(|ui| {
+                if ui.button(egui::RichText::new(t("init_trait", language)).color(egui::Color32::LIGHT_RED)).on_hover_text("清除特质，恢复为无特质状态").clicked() {
                     match SaveManager::clear_hero_upgrade(json_data, hero_key, "traitUpgrade") {
-                        Ok(_) => { edit_state.add_log("INFO", &format!("✔已移除特质 {}", old_name)); }
-                        Err(e) => { edit_state.add_log("ERROR", &format!("移除特质失败: {}", e)); }
+                        Ok(_) => {
+                            edit_state.add_log("INFO", "✔特质已初始化（无特质）");
+                            if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                *recruited_heroes = heroes;
+                                if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                    *hero_details = Some(updated_hero);
+                                }
+                            }
+                            edit_state.new_trait_text.clear();
+                        }
+                        Err(e) => { edit_state.add_log("ERROR", &format!("初始化特质失败: {}", e)); }
                     }
                 }
-            }
+            });
 
             ui.separator();
             ui.horizontal(|ui| {
