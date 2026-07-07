@@ -63,6 +63,7 @@ impl Default for LeftMenuSelection {
 #[allow(dead_code)]
 struct EditState {
     new_class_text: String,
+    new_class_level: String,
     new_item_text: String,
     new_trait_text: String,
     new_coins: String,
@@ -96,6 +97,7 @@ impl Default for EditState {
     fn default() -> Self {
         Self {
             new_class_text: String::new(),
+            new_class_level: String::new(),
             new_item_text: String::new(),
             new_trait_text: String::new(),
             new_coins: String::new(),
@@ -514,10 +516,13 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "no_upgrade"          => "( 无消耗型升级 )",
             "remove_item"         => "移除装备",
             "remove_trait"        => "移除特质",
+            "init_item"           => "初始化装备",
+            "init_trait"          => "初始化特质",
 
             "keep_logs_visible"   => "日志显示",
             "keep_logs_label"     => "保持日志显示",
 
+            "init_class"          => "初始化兵种",
             "class_editor_title"  => "兵种修改 (Class)",
             "item_editor_title"   => "装备修改 (Item)",
             "trait_editor_title"  => "特质修改 (Trait)",
@@ -642,10 +647,13 @@ fn t(key: &str, lang: &Language) -> &'static str {
             "no_upgrade"          => "( No consumable upgrade )",
             "remove_item"         => "Remove Equipment",
             "remove_trait"        => "Remove Trait",
+            "init_item"           => "Init Item",
+            "init_trait"          => "Init Trait",
 
             "keep_logs_visible"   => "Log Display",
             "keep_logs_label"     => "Keep Logs Visible",
 
+            "init_class"          => "Init Class",
             "class_editor_title"  => "Class",
             "item_editor_title"   => "Item",
             "trait_editor_title"  => "Trait",
@@ -2190,27 +2198,66 @@ impl ModifierApp {
                 ui.label(t("new_value", language));
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut edit_state.new_class_text);
-                    if ui.button(t("apply_btn", language)).clicked() {
-                        let new_code = edit_state.new_class_text.trim().to_string();
-                        if !new_code.is_empty() {
-                            match SaveManager::modify_hero_upgrade(
-                                json_data, hero_key, "classUpgrade", &new_code, class_info.level,
-                            ) {
-                                Ok(_) => {
-                                    edit_state.add_log("INFO", &format!("✔兵种已修改 {} →{}", class_info.name, new_code));
-                                    edit_state.add_log("INFO", "✔技能已清空");
-                                    if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
-                                        *recruited_heroes = heroes;
-                                        if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
-                                            *hero_details = Some(updated_hero);
-                                        }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(t("level", language));
+                    let mut level_val = edit_state.new_class_level
+                        .trim()
+                        .parse::<i32>()
+                        .unwrap_or(class_info.level.min(2).max(0))
+                        .max(0).min(2);
+                    if ui.button("[-1]").clicked() && level_val > 0 {
+                        level_val -= 1;
+                        edit_state.new_class_level = level_val.to_string();
+                    }
+                    ui.monospace(format!(" {}", level_val));
+                    if ui.button("[+1]").clicked() && level_val < 2 {
+                        level_val += 1;
+                        edit_state.new_class_level = level_val.to_string();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button(t("apply_modify", language)).clicked() {
+                        let new_code_raw = edit_state.new_class_text.trim().to_string();
+                        let new_code = if new_code_raw.is_empty() { class_info.name.clone() } else { new_code_raw };
+                        let new_level: i32 = edit_state.new_class_level.trim().parse().unwrap_or(class_info.level);
+                        let clamped_level = new_level.max(0).min(2);
+                        match SaveManager::modify_hero_upgrade(
+                            json_data, hero_key, "classUpgrade", &new_code, clamped_level,
+                        ) {
+                            Ok(_) => {
+                                edit_state.add_log("INFO", &format!("✔兵种已修改 {} →{} (L{})", class_info.name, new_code, clamped_level));
+                                edit_state.add_log("INFO", "✔技能已清空");
+                                if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                    *recruited_heroes = heroes;
+                                    if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                        *hero_details = Some(updated_hero);
                                     }
-                                    edit_state.new_class_text.clear();
                                 }
-                                Err(e) => {
-                                    edit_state.add_log("ERROR", &format!("修改失败: {}", e));
-                                    edit_state.add_log("WARN", &format!("ID:{} →{}", class_info.record_id, new_code));
+                                edit_state.new_class_text.clear();
+                                edit_state.new_class_level.clear();
+                            }
+                            Err(e) => {
+                                edit_state.add_log("ERROR", &format!("修改失败: {}", e));
+                                edit_state.add_log("WARN", &format!("ID:{} →{}", class_info.record_id, new_code));
+                            }
+                        }
+                    }
+                    if ui.button(egui::RichText::new(t("init_class", language)).color(egui::Color32::LIGHT_RED)).on_hover_text("清除兵种，恢复为无兵种状态").clicked() {
+                        match SaveManager::clear_hero_upgrade(json_data, hero_key, "classUpgrade") {
+                            Ok(_) => {
+                                edit_state.add_log("INFO", "✔兵种已初始化（无兵种）");
+                                if let Ok(heroes) = SaveManager::get_recruited_heroes(json_data) {
+                                    *recruited_heroes = heroes;
+                                    if let Some(updated_hero) = recruited_heroes.iter().find(|h| h.key == hero_key).cloned() {
+                                        *hero_details = Some(updated_hero);
+                                    }
                                 }
+                                edit_state.new_class_text.clear();
+                                edit_state.new_class_level.clear();
+                            }
+                            Err(e) => {
+                                edit_state.add_log("ERROR", &format!("初始化兵种失败: {}", e));
                             }
                         }
                     }
@@ -2225,8 +2272,10 @@ impl ModifierApp {
                 for entry in class_dictionary::CLASS_DICTIONARY.iter() {
                     ui.horizontal(|ui| {
                         if ui.add(egui::Button::new("⚡").small()).on_hover_text(t("quick_apply_hint", language)).clicked() {
+                            let quick_level: i32 = edit_state.new_class_level.trim().parse().unwrap_or(class_info.level);
+                            let clamped_quick = quick_level.max(0).min(2);
                             match SaveManager::modify_hero_upgrade(
-                                json_data, hero_key, "classUpgrade", entry.code, class_info.level,
+                                json_data, hero_key, "classUpgrade", entry.code, clamped_quick,
                             ) {
                                 Ok(_) => {
                                     edit_state.add_log("INFO", &format!("✔兵种已修改 {} →{}", class_info.name, entry.chinese_name));
