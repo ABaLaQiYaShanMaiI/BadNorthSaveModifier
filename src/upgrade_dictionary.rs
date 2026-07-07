@@ -36,7 +36,7 @@ pub const ITEM_DICTIONARY_ORIGINAL: &[UpgradeEntry] = &[
     UpgradeEntry { code: "Hero_Upgrade_Mine",              chinese_name: "地雷",       initial_level: 0 },
     UpgradeEntry { code: "Hero_Upgrade_PhilosophersStone", chinese_name: "贤者之石",   initial_level: 0 },
     UpgradeEntry { code: "Hero_Upgrade_Size",              chinese_name: "指挥之戒",   initial_level: 0 },
-    UpgradeEntry { code: "Hero_Upgrade_WarHorn",           chinese_name: "战争号角",   initial_level: 0 },
+    UpgradeEntry { code: "Hero_Upgrade_Horn",           chinese_name: "战争号角",   initial_level: 0 },
     UpgradeEntry { code: "Hero_Upgrade_Warhammer",         chinese_name: "战锤",       initial_level: 0 },
 ];
 

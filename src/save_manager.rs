@@ -16,7 +16,7 @@ pub const PHILOSOPHERS_STONE_UPGRADE_CODE: &str = "Hero_Upgrade_PhilosophersSton
 pub const SIZE_UPGRADE_CODE: &str = "Hero_Upgrade_Size";
 pub const WARHAMMER_UPGRADE_CODE: &str = "Hero_Upgrade_Warhammer";
 pub const CORNUCOPIA_UPGRADE_CODE: &str = "Hero_Upgrade_Cornucopia";
-pub const WAR_HORN_UPGRADE_CODE: &str = "Hero_Upgrade_WarHorn";
+pub const WAR_HORN_UPGRADE_CODE: &str = "Hero_Upgrade_Horn";
 
 // ============ 快捷方法宏 (生成类似物品的 get/set/increment/decrement 方法) ============
 macro_rules! item_count_shortcuts {
